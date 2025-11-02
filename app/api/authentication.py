@@ -66,7 +66,12 @@ class CustomJWTAuthentication(JWTAuthentication):
 
     def get_or_create_user(self, validated_token):
         try:
-            email = validated_token.get('preferred_username')
+            # Try multiple possible email claims
+            email = validated_token.get('preferred_username') or validated_token.get('email') or validated_token.get('upn')
+            
+            if not email:
+                raise AuthenticationFailed('No email found in token. Token claims: ' + str(validated_token.keys()))
+            
             domain = email.split('@')[1]
             if domain == 'e.ntu.edu.sg':
                 is_staff = False
