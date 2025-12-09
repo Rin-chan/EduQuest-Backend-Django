@@ -225,6 +225,11 @@ class Question(models.Model):
     number = models.PositiveIntegerField()
     max_score = models.FloatField(default=1)
 
+    cognitive_level = models.CharField(max_length=100, null=True, blank=True)  # Bloom's Taxonomy: Remember, Understand, Apply, Analyze, Evaluate, Create
+    topic = models.CharField(max_length=255, null=True, blank=True)  # Topic of the question
+    difficulty_score = models.FloatField(null=True, blank=True)  # 1-10 scale
+    explanation = models.TextField(null=True, blank=True)  # Explanation for the correct answer
+    
     def __str__(self):
         return f"{self.number} from Quest ID {self.quest.id}"
 
@@ -278,7 +283,9 @@ class UserQuestAttempt(models.Model):
             question_score = 0
 
             for ua in user_answers:
-                if ua.is_selected == ua.answer.is_correct:
+                # Use the is_correct field from UserAnswerAttempt (tracks if THIS student got it right)
+                # Only award points if the student selected this answer AND it was correct for them
+                if ua.is_selected and ua.is_correct:
                     ua.score_achieved = weight_per_option
                     question_score += weight_per_option
                 else:
@@ -316,11 +323,12 @@ class UserQuestAttempt(models.Model):
         # After saving the instance, check if 'submitted' changed from False to True
         if old_submitted_value == False and self.submitted == True:
             # Import tasks locally to avoid circular import
-            from .tasks import (award_first_attempt_badge, calculate_score_and_issue_points)
+            from .tasks import (award_first_attempt_badge, calculate_score_and_issue_points,generate_personalised_feedback, update_cognitive_profile)
             # Trigger all tasks
             calculate_score_and_issue_points.delay(self.id)
             award_first_attempt_badge.delay(self.id)
-
+            generate_personalised_feedback.delay(self.id)
+            update_cognitive_profile.delay(self.id)
 
 class UserAnswerAttempt(models.Model):
     """
@@ -330,6 +338,7 @@ class UserAnswerAttempt(models.Model):
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='user_answer_attempts')
     answer = models.ForeignKey(Answer, on_delete=models.CASCADE)
     is_selected = models.BooleanField(default=False)
+    is_correct = models.BooleanField(default=False)  # Whether this specific student got this answer correct
     score_achieved = models.FloatField(default=0)
 
     def __str__(self):
@@ -420,5 +429,51 @@ class Document(models.Model):
     def __str__(self):
         return self.name
 
+class StudentCognitiveProfile(models.Model):
+    """
+    Track student's cognitive performance across topics and difficulty levels
+    """
+
+    student = models.OneToOneField(EduquestUser, on_delete=models.CASCADE, related_name='cognitive_profile')
+    
+    # Performance based on Bloom's taxonomy levels
+    remember_accuracy = models.FloatField(default=0.0)  # % correct based on quests
+    understand_accuracy = models.FloatField(default=0.0)
+    apply_accuracy = models.FloatField(default=0.0)
+    analyse_accuracy = models.FloatField(default=0.0)
+    evaluate_accuracy = models.FloatField(default=0.0)
+    create_accuracy = models.FloatField(default=0.0)
+
+    # Weak topics (JSON field storing topic names and accuracy)
+    weak_topics = models.JSONField(default=dict)  # {topic_name: accuracy} e.g. {"Data Structures": 45.0, "Algorithms": 60.0}
+
+    # Overall Assessment
+    competency_level = models.CharField(max_length=50, default="Beginner")  # Beginner, Intermediate, Advanced
+    recommend_difficulty = models.FloatField(default=5.0)  # 1-10 scale
+
+    # Timestamp of last update (show to user when profile was last updated)
+    last_updated_datetime = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Cognitive Profile of {self.student.username}"
 
 
+class StudentFeedback(models.Model):
+    """
+    Model to store personalised feedback for each quest attempt
+    """
+
+    user_quest_attempt = models.OneToOneField(UserQuestAttempt, on_delete=models.CASCADE, related_name='personalised_feedback')
+
+    # Overall feedback
+    strengths = models.JSONField(default=list)  # List of strengths and topics done well
+    weaknesses = models.JSONField(default=list)  # List of weaknesses and topics to improve
+    recommendations = models.TextField()  # AI-generated recommendations
+
+    # Question level feedback
+    question_feedback = models.JSONField(default=dict)  # {question_id: {feedback, explanation, study_tip}}
+
+    datetime_created = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Feedback for {self.user_quest_attempt.student.username} on Quest {self.user_quest_attempt.quest.name}"

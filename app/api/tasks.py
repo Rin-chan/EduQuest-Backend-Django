@@ -2,6 +2,10 @@ import logging
 from celery import shared_task
 from django.utils import timezone
 from django.db.models import Max
+import requests
+from django.conf import settings
+
+from api.models import EduquestUser, StudentCognitiveProfile, StudentFeedback, UserQuestAttempt
 
 # Configure the logger
 logger = logging.getLogger(__name__)
@@ -378,7 +382,149 @@ def check_course_completion_and_award_completionist_badge(course_id):
     except UserCourseGroupEnrollment.DoesNotExist:
         return f"[Course Completion Check] UserCourseGroupEnrollment with course id {course_id} does not exist."
 
+@shared_task
+def generate_personalised_feedback(user_quest_attempt_id):
+    """
+    Generate personalised feedback using Flask microservice.
+    """
+    from .models import UserQuestAttempt
 
+    try: 
+        user_quest_attempt = UserQuestAttempt.objects.get(id=user_quest_attempt_id)
 
+        attempt_data = {
+            'student_id': user_quest_attempt.student.id,
+            'quest_id': user_quest_attempt.quest.id,
+            'answers': []
+        }
 
+        # Collect all answer attempts
+        for answer_attempt in user_quest_attempt.answer_attempts.all():
+            question = answer_attempt.question
+            correct_answer = question.answers.filter(is_correct=True).first()
+            
+            attempt_data['answers'].append({
+                'question_id': question.id,
+                'question_text': question.text,
+                'cognitive_level': getattr(question, 'cognitive_level', 'Understand'),
+                'topic': getattr(question, 'topic', 'General'),
+                'selected_answer': answer_attempt.answer.text,
+                'is_correct': answer_attempt.is_correct,
+                'correct_answer': correct_answer.text if correct_answer else '',
+                'explanation': answer_attempt.answer.reason
+            })
 
+        # Call Flask microservice to generate feedback (OUTSIDE the loop)
+        FLASK_URL = getattr(settings, 'FLASK_MICROSERVICE_URL', 'http://localhost:5001')
+        
+        response = requests.post(
+            f"{FLASK_URL}/generate_feedback",
+            json=attempt_data,
+            timeout=30
+        )
+
+        if response.status_code == 200:
+            feedback_data = response.json()
+
+            StudentFeedback.objects.update_or_create(
+                user_quest_attempt=user_quest_attempt,
+                defaults={
+                    'strengths': feedback_data.get('strengths', []),
+                    'weaknesses': feedback_data.get('weaknesses', []),
+                    'recommendations': feedback_data.get('recommendations', ''),
+                    'question_feedback': feedback_data.get('question_feedback', {})
+                }
+            )
+            
+            print(f"[Feedback Generated] for {user_quest_attempt.student.username}")
+        else:
+            print(f"[Feedback Error] Status: {response.status_code}")
+
+    except Exception as e:
+        print(f"[Error Generating Feedback]: {str(e)}")
+
+@shared_task
+def update_cognitive_profile(student_id):
+    """
+    Update student's cognitive profile based on all quest attempts
+    """
+
+    try:  
+        student = EduquestUser.objects.get(id=student_id)
+        
+        # Get or create cognitive profile
+        profile, created = StudentCognitiveProfile.objects.get_or_create(student=student)
+
+        # Analyze all submitted quest attempts
+        all_attempts = UserQuestAttempt.objects.filter(
+            student=student,
+            submitted=True
+        )
+
+        # Calculate accuracy per cognitive level
+        level_stats = {}
+        topic_stats = {}
+
+        for attempt in all_attempts:
+            for answer_attempt in attempt.answer_attempts.all():
+                question = answer_attempt.question
+
+                # Track by cognitive level
+                level = getattr(question, 'cognitive_level', 'Understand')
+                if level not in level_stats: 
+                    level_stats[level] = {
+                        'total': 0,
+                        'correct': 0
+                    }
+                level_stats[level]['total'] += 1
+                if answer_attempt.is_correct:
+                    level_stats[level]['correct'] += 1
+
+                # Track by topic
+                topic = getattr(question, 'topic', 'General')
+                if topic not in topic_stats:
+                    topic_stats[topic] = {
+                        'total': 0,
+                        'correct': 0
+                    }
+                topic_stats[topic]['total'] += 1
+                if answer_attempt.is_correct:
+                    topic_stats[topic]['correct'] += 1
+
+        # Update profile accurately (with division by zero protection)
+        profile.remember_accuracy = (level_stats.get('Remember', {}).get('correct', 0) / max(level_stats.get('Remember', {}).get('total', 1), 1)) * 100
+        profile.understand_accuracy = (level_stats.get('Understand', {}).get('correct', 0) / max(level_stats.get('Understand', {}).get('total', 1), 1)) * 100
+        profile.apply_accuracy = (level_stats.get('Apply', {}).get('correct', 0) / max(level_stats.get('Apply', {}).get('total', 1), 1)) * 100
+        profile.analyse_accuracy = (level_stats.get('Analyze', {}).get('correct', 0) / max(level_stats.get('Analyze', {}).get('total', 1), 1)) * 100
+        profile.evaluate_accuracy = (level_stats.get('Evaluate', {}).get('correct', 0) / max(level_stats.get('Evaluate', {}).get('total', 1), 1)) * 100
+        profile.create_accuracy = (level_stats.get('Create', {}).get('correct', 0) / max(level_stats.get('Create', {}).get('total', 1), 1)) * 100
+
+        # Identify weak topics (accuracy < 60%)
+        weak_topics = {}
+        for topic, stats in topic_stats.items():
+            if stats['total'] > 0:
+                accuracy = (stats['correct'] / stats['total']) * 100
+                if accuracy < 60:
+                    weak_topics[topic] = accuracy
+        profile.weak_topics = weak_topics
+
+        # Determine competency level
+        avg_accuracy = sum([profile.remember_accuracy, profile.understand_accuracy, 
+                        profile.apply_accuracy, profile.analyse_accuracy,
+                        profile.evaluate_accuracy, profile.create_accuracy]) / 6    
+
+        if avg_accuracy >= 80:
+            profile.competency_level = 'Advanced'
+            profile.recommend_difficulty = 8.0
+        elif avg_accuracy >= 60:
+            profile.competency_level = 'Intermediate'
+            profile.recommend_difficulty = 5.0
+        else:
+            profile.competency_level = 'Beginner'
+            profile.recommend_difficulty = 3.0
+
+        profile.save()
+        print(f"[Cognitive Profile Updated] {student.username} - {profile.competency_level}")
+
+    except Exception as e:
+        print(f"[Error Updating Cognitive Profile]: {str(e)}")
