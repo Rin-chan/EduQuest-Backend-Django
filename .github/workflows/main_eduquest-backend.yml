@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKERHUB_REPO: xeroxisxs/eduquest-backend-django
+  DOCKERHUB_REPO: zchua040/eduquest-backend-django
 
 jobs:
   test:
