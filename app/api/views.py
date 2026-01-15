@@ -30,7 +30,8 @@ from .models import (
     Badge,
     UserQuestBadge,
     UserCourseBadge,
-    Document
+    Document,
+    StudentFeedback
 )
 from .serializers import (
     EduquestUserSerializer,
@@ -48,7 +49,8 @@ from .serializers import (
     BadgeSerializer,
     UserQuestBadgeSerializer,
     UserCourseBadgeSerializer,
-    DocumentSerializer
+    DocumentSerializer,
+    StudentFeedbackSerializer
 )
 from rest_framework.decorators import api_view
 from django.utils.decorators import method_decorator
@@ -501,6 +503,30 @@ class UserQuestAttemptViewSet(viewsets.ModelViewSet):
     #         return Response({"updated_attempts": updated_attempts}, status=status.HTTP_200_OK)
     #
     #     return Response({"error": "Expected a list of data."}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class StudentFeedbackViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = StudentFeedback.objects.all().order_by('-datetime_created')
+    serializer_class = StudentFeedbackSerializer
+    permission_classes = [IsAuthenticated]
+
+    def _restrict_queryset(self, request, queryset):
+        if request.user.is_staff or request.user.is_superuser:
+            return queryset
+        return queryset.filter(user_quest_attempt__student=request.user)
+
+    @action(detail=False, methods=['get'])
+    def by_attempt(self, request):
+        attempt_id = request.query_params.get('user_quest_attempt_id') or request.query_params.get('attempt_id')
+        if not attempt_id:
+            return Response({"error": "user_quest_attempt_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        queryset = StudentFeedback.objects.filter(user_quest_attempt_id=attempt_id)
+        queryset = self._restrict_queryset(request, queryset)
+        feedback = queryset.first()
+        if not feedback:
+            return Response({}, status=status.HTTP_200_OK)
+        serializer = self.get_serializer(feedback)
+        return Response(serializer.data)
 
 
 class UserAnswerAttemptViewSet(viewsets.ModelViewSet):

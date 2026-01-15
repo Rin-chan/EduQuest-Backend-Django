@@ -19,6 +19,7 @@ from .models import (
     UserQuestBadge,
     UserCourseBadge,
     Document,
+    StudentFeedback,
 )
 
 
@@ -363,7 +364,7 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Question
-        fields = ['id', 'quest_id', 'text', 'number', 'max_score', 'answers']
+        fields = ['id', 'quest_id', 'text', 'number', 'max_score', 'hint', 'question_type', 'structured_data', 'answers']
 
     def validate(self, data):
         answers = data.get('answers', [])
@@ -451,14 +452,14 @@ class UserQuestAttemptSerializer(serializers.ModelSerializer):
         user_answer_attempts = []
 
         for question in questions:
-            answers = Answer.objects.filter(question=question)
-            for answer in answers:
-                user_answer_attempts.append(UserAnswerAttempt(
-                    user_quest_attempt=user_quest_attempt,
-                    question=question,
-                    answer=answer,
-                    is_selected=False,
-                ))
+              answers = Answer.objects.filter(question=question)
+              for answer in answers:
+                  user_answer_attempts.append(UserAnswerAttempt(
+                      user_quest_attempt=user_quest_attempt,
+                      question=question,
+                      answer=answer,
+                      is_selected=False,
+                  ))
         # Bulk create all UserAnswerAttempt instances
         UserAnswerAttempt.objects.bulk_create(user_answer_attempts)
 
@@ -522,6 +523,7 @@ class UserAnswerAttemptSerializer(serializers.ModelSerializer):
             'answer_id',
             'answer',
             'is_selected',
+            'hint_used',
             'score_achieved'
         ]
         # read_only_fields = ['score_achieved']  # Score is calculated and shouldn't be set directly
@@ -532,6 +534,7 @@ class UserAnswerAttemptSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         # Since foreign keys shouldn't change, we don't need to update them
         instance.is_selected = validated_data.get('is_selected', instance.is_selected)
+        instance.hint_used = validated_data.get('hint_used', instance.hint_used)
         instance.score_achieved = validated_data.get('score_achieved', instance.score_achieved)
         instance.save()
         return instance
@@ -647,4 +650,17 @@ class UserQuestBadgeSerializer(serializers.ModelSerializer):
 class DocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Document
+        fields = '__all__'
+
+
+class StudentFeedbackSerializer(serializers.ModelSerializer):
+    user_quest_attempt_id = serializers.PrimaryKeyRelatedField(
+        queryset=UserQuestAttempt.objects.all(),
+        source='user_quest_attempt',
+        write_only=True
+    )
+    user_quest_attempt = UserQuestAttemptSummarySerializer(read_only=True)
+
+    class Meta:
+        model = StudentFeedback
         fields = '__all__'

@@ -409,7 +409,9 @@ def generate_personalised_feedback(user_quest_attempt_id):
                 'cognitive_level': getattr(question, 'cognitive_level', 'Understand'),
                 'topic': getattr(question, 'topic', 'General'),
                 'selected_answer': answer_attempt.answer.text,
-                'is_correct': answer_attempt.is_correct,
+                'is_selected': answer_attempt.is_selected,
+                'answer_is_correct': answer_attempt.answer.is_correct,
+                'is_correct': answer_attempt.is_selected and answer_attempt.answer.is_correct,
                 'correct_answer': correct_answer.text if correct_answer else '',
                 'explanation': answer_attempt.answer.reason
             })
@@ -429,6 +431,9 @@ def generate_personalised_feedback(user_quest_attempt_id):
             StudentFeedback.objects.update_or_create(
                 user_quest_attempt=user_quest_attempt,
                 defaults={
+                    'quest_summary': feedback_data.get('quest_summary', {}),
+                    'subtopic_feedback': feedback_data.get('subtopic_feedback', []),
+                    'study_tips': feedback_data.get('study_tips', []),
                     'strengths': feedback_data.get('strengths', []),
                     'weaknesses': feedback_data.get('weaknesses', []),
                     'recommendations': feedback_data.get('recommendations', ''),

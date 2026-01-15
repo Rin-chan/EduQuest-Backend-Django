@@ -135,23 +135,27 @@ class StudentFeedbackModelTest(BaseTestCase):
         """Test creating student feedback"""
         feedback = StudentFeedback.objects.create(
             user_quest_attempt=self.attempt,
-            strengths=['Good understanding of basics', 'Strong problem-solving'],
-            weaknesses=['Needs practice with algorithms', 'Weak in complexity analysis'],
-            recommendations='Focus on algorithm practice and Big-O notation',
-            question_feedback={
-                '1': {
-                    'feedback': 'Correct approach',
-                    'concept_explanation': 'Well done',
-                    'study_tip': 'Keep practicing'
+            quest_summary={
+                'overall_bloom_rating': 3,
+                'overall_bloom_level': 'Apply',
+                'summary': 'Shows solid understanding with room to improve on application.'
+            },
+            subtopic_feedback=[
+                {
+                    'subtopic': 'Algorithms',
+                    'bloom_rating': 2,
+                    'bloom_level': 'Understand',
+                    'evidence': 'Missed key distinctions in runtime analysis.',
+                    'improvement_focus': 'Practice comparing algorithm complexity.'
                 }
-            }
+            ],
+            study_tips=['Review algorithm complexity basics.']
         )
 
         self.assertEqual(feedback.user_quest_attempt, self.attempt)
-        self.assertEqual(len(feedback.strengths), 2)
-        self.assertEqual(len(feedback.weaknesses), 2)
-        self.assertIn('algorithm practice', feedback.recommendations)
-        self.assertIn('1', feedback.question_feedback)
+        self.assertIn('overall_bloom_rating', feedback.quest_summary)
+        self.assertEqual(len(feedback.subtopic_feedback), 1)
+        self.assertEqual(len(feedback.study_tips), 1)
 
     def test_student_feedback_one_to_one_relationship(self):
         """Test that each attempt can only have one feedback"""
@@ -170,16 +174,16 @@ class StudentFeedbackModelTest(BaseTestCase):
         """Test JSON field handling"""
         feedback = StudentFeedback.objects.create(
             user_quest_attempt=self.attempt,
-            strengths=['Strength 1', 'Strength 2'],
-            weaknesses=['Weakness 1'],
-            question_feedback={'1': {'feedback': 'Test'}}
+            quest_summary={'overall_bloom_rating': 1, 'overall_bloom_level': 'Remember', 'summary': 'Test'},
+            subtopic_feedback=[{'subtopic': 'Test', 'bloom_rating': 1, 'bloom_level': 'Remember'}],
+            study_tips=['Tip 1']
         )
 
         feedback_from_db = StudentFeedback.objects.get(id=feedback.id)
 
-        self.assertIsInstance(feedback_from_db.strengths, list)
-        self.assertIsInstance(feedback_from_db.weaknesses, list)
-        self.assertIsInstance(feedback_from_db.question_feedback, dict)
+        self.assertIsInstance(feedback_from_db.quest_summary, dict)
+        self.assertIsInstance(feedback_from_db.subtopic_feedback, list)
+        self.assertIsInstance(feedback_from_db.study_tips, list)
 
 
 class QuestionCognitiveFieldsTest(BaseTestCase):
@@ -478,10 +482,13 @@ class GeneratePersonalisedFeedbackTaskTest(BaseTestCase):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            'strengths': ['Good understanding'],
-            'weaknesses': ['Needs practice'],
-            'recommendations': 'Keep practicing',
-            'question_feedback': {}
+            'quest_summary': {
+                'overall_bloom_rating': 2,
+                'overall_bloom_level': 'Understand',
+                'summary': 'Basic understanding with gaps.'
+            },
+            'subtopic_feedback': [],
+            'study_tips': []
         }
         mock_post.return_value = mock_response
 
@@ -504,16 +511,21 @@ class GeneratePersonalisedFeedbackTaskTest(BaseTestCase):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            'strengths': ['Strong recall of definitions', 'Good understanding of concepts'],
-            'weaknesses': ['Needs practice with applications'],
-            'recommendations': 'Focus on practicing real-world examples',
-            'question_feedback': {
-                '1': {
-                    'feedback': 'Correct answer',
-                    'concept_explanation': 'Hash tables use key-value pairs',
-                    'study_tip': 'Review hash function design'
+            'quest_summary': {
+                'overall_bloom_rating': 4,
+                'overall_bloom_level': 'Analyze',
+                'summary': 'Shows strong analytical skill with minor gaps.'
+            },
+            'subtopic_feedback': [
+                {
+                    'subtopic': 'Data Structures',
+                    'bloom_rating': 3,
+                    'bloom_level': 'Apply',
+                    'evidence': 'Applied definitions correctly.',
+                    'improvement_focus': 'Practice more real-world examples.'
                 }
-            }
+            ],
+            'study_tips': ['Practice more real-world examples.']
         }
         mock_post.return_value = mock_response
 
@@ -524,10 +536,9 @@ class GeneratePersonalisedFeedbackTaskTest(BaseTestCase):
         )
 
         feedback = StudentFeedback.objects.get(user_quest_attempt=self.attempt)
-        self.assertEqual(len(feedback.strengths), 2)
-        self.assertEqual(len(feedback.weaknesses), 1)
-        self.assertIn('real-world examples', feedback.recommendations)
-        self.assertIn('1', feedback.question_feedback)
+        self.assertIn('overall_bloom_rating', feedback.quest_summary)
+        self.assertEqual(len(feedback.subtopic_feedback), 1)
+        self.assertEqual(len(feedback.study_tips), 1)
 
     @patch('api.tasks.requests.post')
     def test_generate_feedback_handles_api_error(self, mock_post):
@@ -582,10 +593,13 @@ class GeneratePersonalisedFeedbackTaskTest(BaseTestCase):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            'strengths': ['Good recall'],
-            'weaknesses': ['Struggles with implementation'],
-            'recommendations': 'Practice coding',
-            'question_feedback': {}
+            'quest_summary': {
+                'overall_bloom_rating': 2,
+                'overall_bloom_level': 'Understand',
+                'summary': 'Needs more practice on implementation.'
+            },
+            'subtopic_feedback': [],
+            'study_tips': ['Practice coding.']
         }
         mock_post.return_value = mock_response
 

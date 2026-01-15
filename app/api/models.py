@@ -224,6 +224,10 @@ class Question(models.Model):
     text = models.TextField()
     number = models.PositiveIntegerField()
     max_score = models.FloatField(default=1)
+    hint = models.TextField(null=True, blank=True)
+
+    question_type = models.CharField(max_length=50, default="mcq")  # mcq, matching, categorising, latex_mcq
+    structured_data = models.JSONField(default=dict, blank=True)  # Extra data for non-mcq types
 
     cognitive_level = models.CharField(max_length=100, null=True, blank=True)  # Bloom's Taxonomy: Remember, Understand, Apply, Analyze, Evaluate, Create
     topic = models.CharField(max_length=255, null=True, blank=True)  # Topic of the question
@@ -274,23 +278,34 @@ class UserQuestAttempt(models.Model):
         for question in questions:
             answers = question.answers.all()
             num_options = answers.count()
+            num_correct = answers.filter(is_correct=True).count()
 
             if num_options == 0:
                 continue  # Avoid division by zero
 
-            weight_per_option = question.max_score / num_options
+            weight_per_option = question.max_score / (num_correct or 1)
             user_answers = self.answer_attempts.filter(question=question)
             question_score = 0
 
             for ua in user_answers:
                 # Use the is_correct field from UserAnswerAttempt (tracks if THIS student got it right)
                 # Only award points if the student selected this answer AND it was correct for them
-                if ua.is_selected and ua.is_correct:
+                if ua.is_selected and ua.answer.is_correct:
                     ua.score_achieved = weight_per_option
                     question_score += weight_per_option
                 else:
                     ua.score_achieved = 0
                 user_answer_attempts_to_update.append(ua)
+
+            hint_used = user_answers.filter(hint_used=True).exists()
+            if hint_used:
+                remaining_penalty = 5
+                for ua in user_answers:
+                    if ua.score_achieved > 0 and remaining_penalty > 0:
+                        deduction = min(ua.score_achieved, remaining_penalty)
+                        ua.score_achieved -= deduction
+                        remaining_penalty -= deduction
+                question_score = max(0, question_score - 5)
 
             total_score += question_score
 
@@ -339,6 +354,7 @@ class UserAnswerAttempt(models.Model):
     answer = models.ForeignKey(Answer, on_delete=models.CASCADE)
     is_selected = models.BooleanField(default=False)
     is_correct = models.BooleanField(default=False)  # Whether this specific student got this answer correct
+    hint_used = models.BooleanField(default=False)
     score_achieved = models.FloatField(default=0)
 
     def __str__(self):
@@ -465,13 +481,16 @@ class StudentFeedback(models.Model):
 
     user_quest_attempt = models.OneToOneField(UserQuestAttempt, on_delete=models.CASCADE, related_name='personalised_feedback')
 
-    # Overall feedback
-    strengths = models.JSONField(default=list)  # List of strengths and topics done well
-    weaknesses = models.JSONField(default=list)  # List of weaknesses and topics to improve
-    recommendations = models.TextField()  # AI-generated recommendations
+    # Legacy feedback (kept for backward compatibility)
+    strengths = models.JSONField(default=list, blank=True)  # List of strengths and topics done well
+    weaknesses = models.JSONField(default=list, blank=True)  # List of weaknesses and topics to improve
+    recommendations = models.TextField(blank=True, default="")  # AI-generated recommendations
+    question_feedback = models.JSONField(default=dict, blank=True)  # {question_id: {feedback, explanation, study_tip}}
 
-    # Question level feedback
-    question_feedback = models.JSONField(default=dict)  # {question_id: {feedback, explanation, study_tip}}
+    # Bloom-based feedback (current schema)
+    quest_summary = models.JSONField(default=dict, blank=True)  # {overall_bloom_rating, overall_bloom_level, summary}
+    subtopic_feedback = models.JSONField(default=list, blank=True)  # [{subtopic, bloom_rating, bloom_level, evidence, improvement_focus}]
+    study_tips = models.JSONField(default=list, blank=True)  # [tip, ...]
 
     datetime_created = models.DateTimeField(auto_now_add=True)
 

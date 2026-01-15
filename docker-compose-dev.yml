@@ -26,6 +26,7 @@ services:
       - DEBUG=1
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - FLASK_MICROSERVICE_URL=${FLASK_MICROSERVICE_URL}
 
   celery:
     build:
@@ -52,6 +53,7 @@ services:
       - DEBUG=1
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - FLASK_MICROSERVICE_URL=${FLASK_MICROSERVICE_URL}
 
   celery-beat:
     build:
@@ -78,6 +80,7 @@ services:
       - DEBUG=1
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - FLASK_MICROSERVICE_URL=${FLASK_MICROSERVICE_URL}
 
   redis:
     image: "redis:alpine"
