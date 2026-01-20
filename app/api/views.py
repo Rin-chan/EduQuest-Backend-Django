@@ -1097,3 +1097,4 @@ class AnalyticsPartFourView(APIView):
 
         # Step 5: Return the response data
         return Response(all_courses_data)
+

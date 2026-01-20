@@ -98,6 +98,8 @@ CORS_ALLOWED_ORIGINS = [
     "https://eduquest-frontend.azurewebsites.net",
     "https://www.eduquest.one",
     "https://eduquest.one",
+    "http://localhost:80",
+    "http://localhost"
 ]
 
 ROOT_URLCONF = 'core.urls'

@@ -20,6 +20,8 @@ def test_task():
     return "Task Completed"
 
 
+
+
 @shared_task
 def check_expired_quest():
     """

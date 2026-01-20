@@ -664,3 +664,4 @@ class StudentFeedbackSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentFeedback
         fields = '__all__'
+

@@ -375,6 +375,8 @@ class Badge(models.Model):
         return f"{self.name}"
 
 
+
+
 class UserCourseBadge(models.Model):
     """
     Model to store the user's earned badges from completing courses
