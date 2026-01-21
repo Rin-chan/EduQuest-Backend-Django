@@ -117,9 +117,10 @@ class Course(models.Model):
         # After saving the instance, check if 'status' changed from Active to Expired
         if old_status_value == 'Active' and self.status == 'Expired':
             # Import tasks locally to avoid circular import
-            from .tasks import check_course_completion_and_award_completionist_badge
+            from .tasks import check_course_completion_and_award_completionist_badge, award_tutorial_attendance_badges_for_course
             # Trigger all tasks
             check_course_completion_and_award_completionist_badge.delay(self.id)
+            award_tutorial_attendance_badges_for_course.delay(self.id)
 
             # Recursively set all quests in all course groups to 'Expired'
             for course_group in self.groups.all():
@@ -185,6 +186,7 @@ class Quest(models.Model):
     max_attempts = models.PositiveIntegerField(default=1)
     organiser = models.ForeignKey(EduquestUser, on_delete=models.CASCADE, related_name='quests_organised')
     image = models.ForeignKey(Image, on_delete=models.SET_NULL, null=True, blank=True)
+    source_document = models.ForeignKey('Document', on_delete=models.SET_NULL, null=True, blank=True, related_name='quests')
 
     def __str__(self):
         return f"{self.name} from Group {self.course_group.course.name} {self.course_group.course.code}"
@@ -262,6 +264,8 @@ class UserQuestAttempt(models.Model):
     first_attempted_date = models.DateTimeField(blank=True, null=True)  # blank for imported quests
     last_attempted_date = models.DateTimeField(blank=True, null=True)  # blank for imported quests
     total_score_achieved = models.FloatField(default=0)
+    bonus_points = models.FloatField(default=0)
+    bonus_awarded = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.student.username} attempted {self.quest.name}"
@@ -338,12 +342,21 @@ class UserQuestAttempt(models.Model):
         # After saving the instance, check if 'submitted' changed from False to True
         if old_submitted_value == False and self.submitted == True:
             # Import tasks locally to avoid circular import
-            from .tasks import (award_first_attempt_badge, calculate_score_and_issue_points,generate_personalised_feedback, update_cognitive_profile)
+            from .tasks import (
+                award_first_attempt_badge,
+                calculate_score_and_issue_points,
+                generate_personalised_feedback,
+                update_cognitive_profile
+            )
             # Trigger all tasks
             calculate_score_and_issue_points.delay(self.id)
             award_first_attempt_badge.delay(self.id)
             generate_personalised_feedback.delay(self.id)
             update_cognitive_profile.delay(self.id)
+        elif self.submitted and not hasattr(self, 'personalised_feedback'):
+            # Fallback: ensure feedback is generated if missing after submission
+            from .tasks import generate_personalised_feedback
+            generate_personalised_feedback.delay(self.id)
 
 class UserAnswerAttempt(models.Model):
     """

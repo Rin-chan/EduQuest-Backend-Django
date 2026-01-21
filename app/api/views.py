@@ -1,5 +1,7 @@
 import uuid
 from collections import defaultdict
+import os
+import requests
 from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction
 from rest_framework import viewsets
@@ -14,6 +16,7 @@ from .excel import Excel
 from rest_framework import status
 from django.utils import timezone
 from django.db.models import Sum, F, ExpressionWrapper, DurationField
+from django.conf import settings
 from .models import (
     EduquestUser,
     Image,
@@ -379,6 +382,32 @@ class QuestViewSet(viewsets.ModelViewSet):
 
         return Response(questions_serializer, status=status.HTTP_201_CREATED)
 
+    @action(detail=True, methods=['post'], url_path='bonus-game')
+    def bonus_game(self, request, pk=None):
+        quest = self.get_object()
+        if quest.type != 'Private':
+            return Response({"error": "Bonus game is only available for private quests."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not quest.source_document:
+            return Response({"error": "No source document found for this quest."}, status=status.HTTP_400_BAD_REQUEST)
+
+        document_name = os.path.basename(quest.source_document.file.name)
+        flask_url = getattr(settings, 'FLASK_MICROSERVICE_URL', 'http://localhost:5000')
+
+        logger.info("[Bonus Game] Calling Flask microservice at %s for document=%s", flask_url, document_name)
+        response = requests.post(
+            f"{flask_url}/generate_bonus_game",
+            json={"document_id": document_name},
+            timeout=30
+        )
+        logger.info("[Bonus Game] Flask response status=%s", response.status_code)
+
+        if response.status_code != 200:
+            logger.error("[Bonus Game] Flask error status=%s body=%s", response.status_code, response.text[:500])
+            return Response({"error": "Failed to generate bonus game."}, status=response.status_code)
+
+        return Response(response.json())
+
 
 class QuestionViewSet(viewsets.ModelViewSet):
     queryset = Question.objects.all().order_by('-id')
@@ -473,6 +502,36 @@ class UserQuestAttemptViewSet(viewsets.ModelViewSet):
             instance.save()
         return Response({"message": f"All attempts for quest {quest_id} have been marked as submitted."})
 
+    @action(detail=True, methods=['post'], url_path='bonus')
+    def award_bonus(self, request, pk=None):
+        attempt = self.get_object()
+        user = request.user
+
+        if attempt.student_id != user.id:
+            return Response({"error": "You can only claim bonus for your own attempts."}, status=status.HTTP_403_FORBIDDEN)
+
+        if attempt.quest.type != 'Private':
+            return Response({"error": "Bonus is only available for private quests."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if attempt.bonus_awarded:
+            return Response({
+                "bonus_awarded": True,
+                "bonus_points": attempt.bonus_points
+            })
+
+        bonus_points = 5
+        attempt.bonus_points = bonus_points
+        attempt.bonus_awarded = True
+        attempt.save(update_fields=['bonus_points', 'bonus_awarded'])
+
+        user.total_points += bonus_points
+        user.save(update_fields=['total_points'])
+
+        return Response({
+            "bonus_awarded": True,
+            "bonus_points": bonus_points
+        })
+
     # @action(detail=False, methods=['patch'], url_path='bulk-update')
     # def bulk_update(self, request, *args, **kwargs):
     #     """
@@ -527,6 +586,37 @@ class StudentFeedbackViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({}, status=status.HTTP_200_OK)
         serializer = self.get_serializer(feedback)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['post'], url_path='save')
+    def save_feedback(self, request):
+        attempt_id = request.data.get('user_quest_attempt_id') or request.data.get('attempt_id')
+        if not attempt_id:
+            return Response({"error": "user_quest_attempt_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            attempt = UserQuestAttempt.objects.get(id=attempt_id)
+        except UserQuestAttempt.DoesNotExist:
+            return Response({"error": "User quest attempt not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not (request.user.is_staff or request.user.is_superuser) and attempt.student != request.user:
+            return Response({"error": "Not authorized to save feedback for this attempt."}, status=status.HTTP_403_FORBIDDEN)
+
+        defaults = {
+            'quest_summary': request.data.get('quest_summary', {}),
+            'subtopic_feedback': request.data.get('subtopic_feedback', []),
+            'study_tips': request.data.get('study_tips', []),
+            'strengths': request.data.get('strengths', []),
+            'weaknesses': request.data.get('weaknesses', []),
+            'recommendations': request.data.get('recommendations', ''),
+            'question_feedback': request.data.get('question_feedback', {}),
+        }
+
+        feedback, _ = StudentFeedback.objects.update_or_create(
+            user_quest_attempt=attempt,
+            defaults=defaults
+        )
+        serializer = self.get_serializer(feedback)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class UserAnswerAttemptViewSet(viewsets.ModelViewSet):
