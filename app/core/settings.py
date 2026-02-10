@@ -96,8 +96,11 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "https://eduquest-admin.azurewebsites.net",
     "https://eduquest-frontend.azurewebsites.net",
+    "https://eduquest-ntu-frontend.azurewebsites.net",
     "https://www.eduquest.one",
     "https://eduquest.one",
+    "http://localhost:80",
+    "http://localhost"
 ]
 
 ROOT_URLCONF = 'core.urls'
@@ -191,6 +194,8 @@ STORAGES = {
 
 CSRF_TRUSTED_ORIGINS = [
     'https://eduquest-admin.azurewebsites.net',
+    'https://eduquest-ntu-backend.azurewebsites.net',
+    'https://eduquest-backend.azurewebsites.net',
     'https://eduquest.azurewebsites.net,'
     'https://eduquest.one',
     'https://www.eduquest.one',

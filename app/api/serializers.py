@@ -219,6 +219,12 @@ class CourseGroupSummarySerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'course']
 
 
+class DocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Document
+        fields = '__all__'
+
+
 class UserCourseGroupEnrollmentSerializer(serializers.ModelSerializer):
     course_group_id = serializers.PrimaryKeyRelatedField(
         queryset=CourseGroup.objects.all(),
@@ -304,10 +310,17 @@ class QuestSerializer(serializers.ModelSerializer):
         source='image',
         write_only=True
     )
+    source_document_id = serializers.PrimaryKeyRelatedField(
+        queryset=Document.objects.all(),
+        source='source_document',
+        write_only=True,
+        required=False
+    )
 
     course_group = CourseGroupSerializer(read_only=True)
     organiser = EduquestUserSummarySerializer(read_only=True)
     image = ImageSerializer(read_only=True)
+    source_document = DocumentSerializer(read_only=True)
     total_max_score = serializers.SerializerMethodField(read_only=True)
     total_questions = serializers.SerializerMethodField(read_only=True)
 
@@ -333,6 +346,10 @@ class QuestSerializer(serializers.ModelSerializer):
         image = validated_data.pop('image', None)
         if image:
             instance.image = image
+
+        source_document = validated_data.pop('source_document', None)
+        if source_document is not None:
+            instance.source_document = source_document
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -411,7 +428,8 @@ class UserQuestAttemptSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserQuestAttempt
         fields = ['id', 'quest_id', 'student_id', 'submitted', 'time_taken',
-                  'total_score_achieved', 'first_attempted_date', 'last_attempted_date']
+                  'total_score_achieved', 'bonus_points', 'bonus_awarded',
+                  'first_attempted_date', 'last_attempted_date']
 
     def validate(self, data):
         student = data.get('student')
@@ -647,12 +665,6 @@ class UserQuestBadgeSerializer(serializers.ModelSerializer):
         return instance
 
 
-class DocumentSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Document
-        fields = '__all__'
-
-
 class StudentFeedbackSerializer(serializers.ModelSerializer):
     user_quest_attempt_id = serializers.PrimaryKeyRelatedField(
         queryset=UserQuestAttempt.objects.all(),
@@ -664,3 +676,4 @@ class StudentFeedbackSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentFeedback
         fields = '__all__'
+

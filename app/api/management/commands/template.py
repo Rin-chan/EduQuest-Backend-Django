@@ -19,6 +19,8 @@ image_list = [
     {"name": "Expert Badge", "filename": "expert_badge.svg"},
     {"name": "Speedster Badge", "filename": "speedster_badge.svg"},
     {"name": "Perfectionist Badge", "filename": "perfectionist_badge.svg"},
+    {"name": "Full Attendance Badge", "filename": "full_attendance_badge.svg"},
+    {"name": "Half Attendance Badge", "filename": "half_attendance_badge.svg"},
     {"name": "Private Course", "filename": "private_course.svg"},
     {"name": "Private Quest", "filename": "private_quest.svg"},
     {"name": "Kahoot Quest", "filename": "kahoot.svg"},
@@ -63,6 +65,20 @@ badge_list = [
         "type": "Quest",
         "image": "perfectionist_badge.svg",
         "condition": "Non-private Quest, Achieved a perfect score"
+    },
+    {
+        "name": "Full Attendance",
+        "description": "Awarded for completing over 70% of tutorial quests in a course group.",
+        "type": "Course",
+        "image": "full_attendance_badge.svg",
+        "condition": "Non-private tutorial quest, Submitted attempts for over 70% of tutorials"
+    },
+    {
+        "name": "Half Attendance",
+        "description": "Awarded for completing over 50% of tutorial quests in a course group.",
+        "type": "Course",
+        "image": "half_attendance_badge.svg",
+        "condition": "Non-private tutorial quest, Submitted attempts for over 50% of tutorials"
     }
 ]
 

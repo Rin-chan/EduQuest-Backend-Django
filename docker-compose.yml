@@ -1,5 +1,6 @@
 services:
   app:
+    build: .
     image: zchua040/eduquest-backend-django:latest
     ports:
       - "8000:8000"

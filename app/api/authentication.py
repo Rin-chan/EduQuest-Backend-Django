@@ -52,8 +52,17 @@ class CustomJWTAuthentication(JWTAuthentication):
             key = next(k for k in keys if k['kid'] == unverified_header['kid'])
             public_key = jwt.algorithms.RSAAlgorithm.from_jwk(key)
 
-            # Validate the token using the public key
-            decoded_token = jwt.decode(raw_token, key=public_key, algorithms=["RS256"], audience=settings.AZURE_CLIENT_ID)
+            # Validate the token using the public key. Accept both client-id and api://client-id audiences.
+            expected_audiences = [
+                settings.AZURE_CLIENT_ID,
+                f"api://{settings.AZURE_CLIENT_ID}",
+            ]
+            decoded_token = jwt.decode(
+                raw_token,
+                key=public_key,
+                algorithms=["RS256"],
+                audience=expected_audiences,
+            )
             return decoded_token
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Token has expired, please authenticate again.')

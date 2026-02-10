@@ -33,10 +33,57 @@ class EduquestUser(AbstractUser):
             self.first_name, self.last_name = split_full_name(self.nickname)
         super().save(*args, **kwargs)
         if is_new and not self.is_superuser:
-            # Enroll the user in the private course group
-            from .models import CourseGroup, UserCourseGroupEnrollment
-            private_course_group = CourseGroup.objects.get(name="Private Course Group")
-            UserCourseGroupEnrollment.objects.create(student=self, course_group=private_course_group)
+            # Ensure private learning path exists, then enroll the user.
+            private_course_group = CourseGroup.objects.filter(name="Private Course Group").first()
+            if private_course_group is None:
+                private_academic_year = AcademicYear.objects.filter(start_year=0, end_year=0).order_by('id').first()
+                if private_academic_year is None:
+                    private_academic_year = AcademicYear.objects.create(start_year=0, end_year=0)
+
+                private_term = Term.objects.filter(
+                    academic_year=private_academic_year,
+                    name="Private Term"
+                ).order_by('id').first()
+                if private_term is None:
+                    private_term = Term.objects.create(
+                        academic_year=private_academic_year,
+                        name="Private Term",
+                        start_date=None,
+                        end_date=None
+                    )
+
+                private_course = Course.objects.filter(name="Private Course").first()
+                if private_course is None:
+                    private_image = Image.objects.filter(name="Private Courses").first()
+                    private_course = Course.objects.create(
+                        term=private_term,
+                        name="Private Course",
+                        code="PRIVATE",
+                        type="System-enroll",
+                        description="This is a private course for personal quest generation.",
+                        status="Active",
+                        image=private_image
+                    )
+
+                default_instructor = (
+                    EduquestUser.objects.filter(is_superuser=True).order_by('id').first()
+                    or EduquestUser.objects.filter(is_staff=True).order_by('id').first()
+                    or self
+                )
+                private_course_group = CourseGroup.objects.filter(
+                    course=private_course,
+                    name="Private Course Group"
+                ).order_by('id').first()
+                if private_course_group is None:
+                    private_course_group = CourseGroup.objects.create(
+                        course=private_course,
+                        name="Private Course Group",
+                        session_day="",
+                        session_time="",
+                        instructor=default_instructor
+                    )
+
+            UserCourseGroupEnrollment.objects.get_or_create(student=self, course_group=private_course_group)
             print(f"[Enroll Private Course Group] User: {self.username} has been enrolled in the Private course group")
 
 
@@ -117,9 +164,10 @@ class Course(models.Model):
         # After saving the instance, check if 'status' changed from Active to Expired
         if old_status_value == 'Active' and self.status == 'Expired':
             # Import tasks locally to avoid circular import
-            from .tasks import check_course_completion_and_award_completionist_badge
+            from .tasks import check_course_completion_and_award_completionist_badge, award_tutorial_attendance_badges_for_course
             # Trigger all tasks
             check_course_completion_and_award_completionist_badge.delay(self.id)
+            award_tutorial_attendance_badges_for_course.delay(self.id)
 
             # Recursively set all quests in all course groups to 'Expired'
             for course_group in self.groups.all():
@@ -185,6 +233,7 @@ class Quest(models.Model):
     max_attempts = models.PositiveIntegerField(default=1)
     organiser = models.ForeignKey(EduquestUser, on_delete=models.CASCADE, related_name='quests_organised')
     image = models.ForeignKey(Image, on_delete=models.SET_NULL, null=True, blank=True)
+    source_document = models.ForeignKey('Document', on_delete=models.SET_NULL, null=True, blank=True, related_name='quests')
 
     def __str__(self):
         return f"{self.name} from Group {self.course_group.course.name} {self.course_group.course.code}"
@@ -262,6 +311,8 @@ class UserQuestAttempt(models.Model):
     first_attempted_date = models.DateTimeField(blank=True, null=True)  # blank for imported quests
     last_attempted_date = models.DateTimeField(blank=True, null=True)  # blank for imported quests
     total_score_achieved = models.FloatField(default=0)
+    bonus_points = models.FloatField(default=0)
+    bonus_awarded = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.student.username} attempted {self.quest.name}"
@@ -338,12 +389,21 @@ class UserQuestAttempt(models.Model):
         # After saving the instance, check if 'submitted' changed from False to True
         if old_submitted_value == False and self.submitted == True:
             # Import tasks locally to avoid circular import
-            from .tasks import (award_first_attempt_badge, calculate_score_and_issue_points,generate_personalised_feedback, update_cognitive_profile)
+            from .tasks import (
+                award_first_attempt_badge,
+                calculate_score_and_issue_points,
+                generate_personalised_feedback,
+                update_cognitive_profile
+            )
             # Trigger all tasks
             calculate_score_and_issue_points.delay(self.id)
             award_first_attempt_badge.delay(self.id)
             generate_personalised_feedback.delay(self.id)
             update_cognitive_profile.delay(self.id)
+        elif self.submitted and not hasattr(self, 'personalised_feedback'):
+            # Fallback: ensure feedback is generated if missing after submission
+            from .tasks import generate_personalised_feedback
+            generate_personalised_feedback.delay(self.id)
 
 class UserAnswerAttempt(models.Model):
     """
@@ -373,6 +433,8 @@ class Badge(models.Model):
 
     def __str__(self):
         return f"{self.name}"
+
+
 
 
 class UserCourseBadge(models.Model):

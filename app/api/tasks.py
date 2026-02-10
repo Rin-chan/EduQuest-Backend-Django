@@ -1,7 +1,7 @@
 import logging
 from celery import shared_task
 from django.utils import timezone
-from django.db.models import Max
+from django.db.models import Max, Q
 import requests
 from django.conf import settings
 
@@ -9,6 +9,16 @@ from api.models import EduquestUser, StudentCognitiveProfile, StudentFeedback, U
 
 # Configure the logger
 logger = logging.getLogger(__name__)
+
+BADGE_POINTS = 50
+
+def award_badge_points(user, badge_name):
+    """
+    Add points when a badge is earned.
+    """
+    user.total_points += BADGE_POINTS
+    user.save(update_fields=['total_points'])
+    logger.info("[Badge Points] Awarded %s points to %s for %s badge", BADGE_POINTS, user.username, badge_name)
 
 @shared_task
 def test_task():
@@ -18,6 +28,8 @@ def test_task():
     """
     logger.info("Test task is being processed.")
     return "Task Completed"
+
+
 
 
 @shared_task
@@ -118,6 +130,7 @@ def award_first_attempt_badge(user_quest_attempt_id):
                 user_quest_attempt=attempt
             )
             if created:
+                award_badge_points(user, "First Attempt")
                 return f"[First Attempt] Badge awarded to user: {user.username}"
             else:
                 return f"[First Attempt] User: {user.username} already has the badge"
@@ -148,6 +161,10 @@ def award_perfectionist_badge(user_quest_attempt_id):
         if not attempt.submitted:
             return f"[Perfectionist] Attempt for quest: {quest.name} is not submitted yet"
 
+        hint_used = attempt.answer_attempts.filter(hint_used=True).exists()
+        if hint_used:
+            return f"[Perfectionist] Skipping Quest: {quest.name} used hints"
+
         # Calculate the total max score for the quest
         quest_max_score = quest.total_max_score()
         total_score_achieved = attempt.total_score_achieved
@@ -160,6 +177,7 @@ def award_perfectionist_badge(user_quest_attempt_id):
                 user_quest_attempt=attempt
             )
             if created:
+                award_badge_points(attempt.student, "Perfectionist")
                 return f"[Perfectionist] Badge awarded to user: {attempt.student.username}"
             else:
                 return f"[Perfectionist] User: {attempt.student.username} already has the badge for this quest"
@@ -224,6 +242,7 @@ def award_speedster_badge(quest_id):
                 user_quest_attempt=fastest_attempt
             )
             if created:
+                award_badge_points(fastest_attempt.student, "Speedster")
                 return f"[Speedster] Badge awarded to user: {fastest_attempt.student.username}"
             else:
                 return f"[Speedster] User: {fastest_attempt.student.username} already has the badge."
@@ -278,10 +297,12 @@ def award_expert_badge(quest_id):
 
         users_awarded = []
         for attempt in top_attempts:
-            UserQuestBadge.objects.get_or_create(
+            user_quest_badge, created = UserQuestBadge.objects.get_or_create(
                 badge=badge,
                 user_quest_attempt=attempt
             )
+            if created:
+                award_badge_points(attempt.student, "Expert")
             users_awarded.append(attempt.student.username)
 
         return f"[Expert] Badge awarded to users: {users_awarded} with the highest score: {highest_score} for quest: {quest.name}"
@@ -290,6 +311,58 @@ def award_expert_badge(quest_id):
         return f"[Expert] Quest with id {quest_id} does not exist."
     except Badge.DoesNotExist:
         return f"[Expert] Badge 'Expert' does not exist."
+
+@shared_task
+def award_tutorial_attendance_badges_for_course(course_id):
+    """
+    Award tutorial attendance badges per course group when a course expires.
+    """
+    from .models import CourseGroup, Quest, UserCourseGroupEnrollment, UserCourseBadge, Badge, UserQuestAttempt
+    try:
+        course_groups = CourseGroup.objects.filter(course_id=course_id)
+        if not course_groups.exists():
+            return f"[Tutorial Attendance] No course groups found for course: {course_id}"
+
+        full_badge = Badge.objects.get(name="Full Attendance")
+        half_badge = Badge.objects.get(name="Half Attendance")
+
+        for course_group in course_groups:
+            tutorial_quests = Quest.objects.filter(course_group=course_group).exclude(type="Private").filter(
+                Q(tutorial_date__isnull=False) | Q(type__in=["Kahoot!", "Wooclap", "Wooclap!", "WooClap"])
+            )
+            total_tutorials = tutorial_quests.count()
+            if total_tutorials == 0:
+                continue
+
+            enrollments = UserCourseGroupEnrollment.objects.filter(course_group=course_group)
+            for enrollment in enrollments:
+                completed_tutorials = UserQuestAttempt.objects.filter(
+                    student=enrollment.student,
+                    quest__in=tutorial_quests,
+                    submitted=True
+                ).values("quest_id").distinct().count()
+
+                ratio = completed_tutorials / total_tutorials
+                if ratio >= 0.7:
+                    badge = full_badge
+                elif ratio > 0.5 and ratio < 0.7:
+                    badge = half_badge
+                else:
+                    continue
+
+                user_course_badge, created = UserCourseBadge.objects.get_or_create(
+                    badge=badge,
+                    user_course_group_enrollment=enrollment
+                )
+                if created:
+                    award_badge_points(enrollment.student, badge.name)
+
+        return f"[Tutorial Attendance] Awarded tutorial badges for course: {course_id}"
+    except Badge.DoesNotExist:
+        return "[Tutorial Attendance] Required badges do not exist."
+    except Exception as e:
+        logger.exception("[Tutorial Attendance] Unexpected error: %s", str(e))
+        return f"[Tutorial Attendance] Error: {str(e)}"
 
 
 # @shared_task
@@ -371,10 +444,12 @@ def check_course_completion_and_award_completionist_badge(course_id):
 
                 # Award the "Completionist" badge
                 badge = Badge.objects.get(name="Completionist")
-                UserCourseBadge.objects.get_or_create(
+                user_course_badge, created = UserCourseBadge.objects.get_or_create(
                     badge=badge,
                     user_course_group_enrollment=user_course_group_enrollment
                 )
+                if created:
+                    award_badge_points(user, "Completionist")
                 awarded_users.append(user_course_group_enrollment.student.username)
 
         return f"[Course Completion Check] Badge awarded to users: {awarded_users} for completing course group: {course_group}"
@@ -418,12 +493,15 @@ def generate_personalised_feedback(user_quest_attempt_id):
 
         # Call Flask microservice to generate feedback (OUTSIDE the loop)
         FLASK_URL = getattr(settings, 'FLASK_MICROSERVICE_URL', 'http://localhost:5001')
+        logger.info("[Feedback] Calling Flask microservice at %s", FLASK_URL)
+        logger.info("[Feedback] Attempt %s payload answers=%s", user_quest_attempt_id, len(attempt_data.get('answers', [])))
         
         response = requests.post(
             f"{FLASK_URL}/generate_feedback",
             json=attempt_data,
             timeout=30
         )
+        logger.info("[Feedback] Flask response status=%s", response.status_code)
 
         if response.status_code == 200:
             feedback_data = response.json()
@@ -443,9 +521,14 @@ def generate_personalised_feedback(user_quest_attempt_id):
             
             print(f"[Feedback Generated] for {user_quest_attempt.student.username}")
         else:
+            logger.error("[Feedback] Flask error status=%s body=%s", response.status_code, response.text[:500])
             print(f"[Feedback Error] Status: {response.status_code}")
 
+    except requests.RequestException as e:
+        logger.exception("[Feedback] Request failed: %s", str(e))
+        print(f"[Error Generating Feedback]: {str(e)}")
     except Exception as e:
+        logger.exception("[Feedback] Unexpected error: %s", str(e))
         print(f"[Error Generating Feedback]: {str(e)}")
 
 @shared_task

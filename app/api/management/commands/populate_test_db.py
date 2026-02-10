@@ -144,15 +144,14 @@ class Command(BaseCommand):
 
     def create_academic_years_terms(self):
         # Create a private year and term for the private course
-        private_academic_year = AcademicYear.objects.create(
+        private_academic_year, _ = AcademicYear.objects.get_or_create(
             start_year=0,
             end_year=0
         )
-        Term.objects.create(
+        Term.objects.get_or_create(
             academic_year=private_academic_year,
             name="Private Term",
-            start_date=None,
-            end_date=None
+            defaults={"start_date": None, "end_date": None}
         )
 
         # Create normal academic years and their terms
@@ -187,28 +186,31 @@ class Command(BaseCommand):
             print(f"Created course: {course.name}")
 
         # Create a private course
-        term = Term.objects.get(name="Private Term")
-        course = Course.objects.create(
+        term = Term.objects.filter(name="Private Term").order_by('id').first()
+        course, _ = Course.objects.get_or_create(
             name="Private Course",
-            description="This is a private course created for all students to generate their "
-                        "own quests and questions.",
-            code="PRIVATE",
-            term=term,
-            type='Private',
-            status='Active',
-            image=Image.objects.get(name="Private Course")
+            defaults={
+                "description": "This is a private course created for all students to generate their own quests and questions.",
+                "code": "PRIVATE",
+                "term": term,
+                "type": "Private",
+                "status": "Active",
+                "image": Image.objects.get(name="Private Course")
+            }
         )
         course.coordinators.set([self.admin])
         print(f"Created a private course: {course.name}")
 
     def create_private_course_group(self):
-        course = Course.objects.get(name="Private Course")
-        course_group = CourseGroup.objects.create(
+        course = Course.objects.filter(name="Private Course").order_by('id').first()
+        course_group, _ = CourseGroup.objects.get_or_create(
             name="Private Course Group",
-            session_day="",
-            session_time="",
-            instructor=self.admin,
-            course=course
+            course=course,
+            defaults={
+                "session_day": "",
+                "session_time": "",
+                "instructor": self.admin
+            }
         )
         print(f"Created a private course group: {course_group.name}")
 
