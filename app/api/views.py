@@ -7,7 +7,7 @@ from django.db import transaction
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAdminUser, SAFE_METHODS
 from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
 from datetime import timedelta
@@ -674,6 +674,13 @@ class BadgeViewSet(viewsets.ModelViewSet):
     queryset = Badge.objects.all().order_by('-id')
     serializer_class = BadgeSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        # Allow all authenticated users to view badges,
+        # but only staff/superuser to create/update/delete.
+        if self.request.method in SAFE_METHODS:
+            return [IsAuthenticated()]
+        return [IsAdminUser()]
 
 
 class UserQuestBadgeViewSet(viewsets.ModelViewSet):

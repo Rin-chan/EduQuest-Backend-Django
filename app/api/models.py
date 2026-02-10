@@ -33,10 +33,57 @@ class EduquestUser(AbstractUser):
             self.first_name, self.last_name = split_full_name(self.nickname)
         super().save(*args, **kwargs)
         if is_new and not self.is_superuser:
-            # Enroll the user in the private course group
-            from .models import CourseGroup, UserCourseGroupEnrollment
-            private_course_group = CourseGroup.objects.get(name="Private Course Group")
-            UserCourseGroupEnrollment.objects.create(student=self, course_group=private_course_group)
+            # Ensure private learning path exists, then enroll the user.
+            private_course_group = CourseGroup.objects.filter(name="Private Course Group").first()
+            if private_course_group is None:
+                private_academic_year = AcademicYear.objects.filter(start_year=0, end_year=0).order_by('id').first()
+                if private_academic_year is None:
+                    private_academic_year = AcademicYear.objects.create(start_year=0, end_year=0)
+
+                private_term = Term.objects.filter(
+                    academic_year=private_academic_year,
+                    name="Private Term"
+                ).order_by('id').first()
+                if private_term is None:
+                    private_term = Term.objects.create(
+                        academic_year=private_academic_year,
+                        name="Private Term",
+                        start_date=None,
+                        end_date=None
+                    )
+
+                private_course = Course.objects.filter(name="Private Course").first()
+                if private_course is None:
+                    private_image = Image.objects.filter(name="Private Courses").first()
+                    private_course = Course.objects.create(
+                        term=private_term,
+                        name="Private Course",
+                        code="PRIVATE",
+                        type="System-enroll",
+                        description="This is a private course for personal quest generation.",
+                        status="Active",
+                        image=private_image
+                    )
+
+                default_instructor = (
+                    EduquestUser.objects.filter(is_superuser=True).order_by('id').first()
+                    or EduquestUser.objects.filter(is_staff=True).order_by('id').first()
+                    or self
+                )
+                private_course_group = CourseGroup.objects.filter(
+                    course=private_course,
+                    name="Private Course Group"
+                ).order_by('id').first()
+                if private_course_group is None:
+                    private_course_group = CourseGroup.objects.create(
+                        course=private_course,
+                        name="Private Course Group",
+                        session_day="",
+                        session_time="",
+                        instructor=default_instructor
+                    )
+
+            UserCourseGroupEnrollment.objects.get_or_create(student=self, course_group=private_course_group)
             print(f"[Enroll Private Course Group] User: {self.username} has been enrolled in the Private course group")
 
 
