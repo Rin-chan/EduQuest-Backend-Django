@@ -48,7 +48,7 @@ provider "azurerm" {
       purge_soft_delete_on_destroy = true
     }
   }
-  
+
   # Skip automatic resource provider registration (requires higher permissions)
   skip_provider_registration = true
 }
@@ -70,7 +70,7 @@ locals {
   backend_name      = "${var.base_name}-ntu-backend"
   frontend_name     = "${var.base_name}-ntu-frontend"
   microservice_name = "${var.base_name}-ntu-microservice"
-  db_name           = "${var.base_name}-ntu-db"
+  server_name       = "${var.base_name}-ntu-db"
   storage_name      = "${var.base_name}ntustorage"
   appreg_outputs    = var.use_app_registration_outputs ? data.terraform_remote_state.app_registration[0].outputs : {}
 
@@ -91,6 +91,13 @@ locals {
     try(var.login_request_scope, null),
     try(local.appreg_outputs.login_request_scope, null)
   ), "")
+
+  # Database configuration - use existing or create new
+  db_host     = var.use_existing_database ? var.existing_database_host : azurerm_postgresql_flexible_server.main[0].fqdn
+  db_name     = var.use_existing_database ? var.existing_database_name : "eduquest"
+  db_user     = var.use_existing_database ? var.existing_database_user : "eduadmin"
+  db_password = var.use_existing_database ? var.existing_database_password : random_password.db_password.result
+  db_port     = var.use_existing_database ? var.existing_database_port : "5432"
 }
 
 # ============================================
@@ -105,6 +112,14 @@ resource "random_password" "db_password" {
 resource "random_password" "secret_key" {
   length  = 50
   special = true
+}
+
+resource "random_string" "unique_suffix" {
+  length  = 6
+  lower   = true
+  upper   = false
+  number  = true
+  special = false
 }
 
 # ============================================
@@ -122,7 +137,7 @@ resource "azurerm_resource_group" "main" {
 }
 
 locals {
-  resource_group_name = var.use_existing_resources ? data.azurerm_resource_group.main[0].name : azurerm_resource_group.main[0].name
+  resource_group_name     = var.use_existing_resources ? data.azurerm_resource_group.main[0].name : azurerm_resource_group.main[0].name
   resource_group_location = var.use_existing_resources ? data.azurerm_resource_group.main[0].location : azurerm_resource_group.main[0].location
 }
 
@@ -130,17 +145,19 @@ locals {
 # 2. AZURE OPENAI
 # ============================================
 resource "azurerm_cognitive_account" "openai" {
-  name                  = "${var.base_name}-ntu-openai"
+  count                 = var.deploy_openai ? 1 : 0
+  name                  = var.openai_resource_name
   resource_group_name   = local.resource_group_name
   location              = var.openai_location
   kind                  = "OpenAI"
   sku_name              = "S0"
-  custom_subdomain_name = "${var.base_name}-ntu-openai"
+  custom_subdomain_name = var.openai_custom_subdomain_name
 }
 
 resource "azurerm_cognitive_deployment" "gpt" {
+  count                = var.deploy_openai ? 1 : 0
   name                 = var.openai_deployment_name
-  cognitive_account_id = azurerm_cognitive_account.openai.id
+  cognitive_account_id = azurerm_cognitive_account.openai[0].id
 
   model {
     format  = "OpenAI"
@@ -160,7 +177,7 @@ resource "azurerm_cognitive_deployment" "gpt" {
 data "azurerm_service_plan" "main" {
   count               = var.use_existing_resources ? 1 : 0
   name                = var.existing_app_service_plan_name
-  resource_group_name = local.resource_group_name
+  resource_group_name = var.existing_app_service_plan_resource_group_name != "" ? var.existing_app_service_plan_resource_group_name : local.resource_group_name
 }
 
 resource "azurerm_service_plan" "main" {
@@ -181,6 +198,7 @@ locals {
 # 6. STORAGE ACCOUNT
 # ============================================
 resource "azurerm_storage_account" "main" {
+  count                    = var.deploy_storage ? 1 : 0
   name                     = local.storage_name
   resource_group_name      = local.resource_group_name
   location                 = local.resource_group_location
@@ -199,16 +217,18 @@ resource "azurerm_storage_account" "main" {
 }
 
 resource "azurerm_storage_container" "media" {
+  count                 = var.deploy_storage ? 1 : 0
   name                  = "eduquest-container"
-  storage_account_name  = azurerm_storage_account.main.name
+  storage_account_name  = azurerm_storage_account.main[0].name
   container_access_type = "blob"
 }
 
 # ============================================
-# 4. POSTGRESQL DATABASE
+# 4. POSTGRESQL DATABASE (Create new or use existing)
 # ============================================
 resource "azurerm_postgresql_flexible_server" "main" {
-  name                   = local.db_name
+  count                  = var.use_existing_database ? 0 : 1
+  name                   = local.server_name
   resource_group_name    = local.resource_group_name
   location               = local.resource_group_location
   version                = "15"
@@ -220,15 +240,17 @@ resource "azurerm_postgresql_flexible_server" "main" {
 }
 
 resource "azurerm_postgresql_flexible_server_database" "main" {
+  count     = var.use_existing_database ? 0 : 1
   name      = "eduquest"
-  server_id = azurerm_postgresql_flexible_server.main.id
+  server_id = azurerm_postgresql_flexible_server.main[0].id
   charset   = "UTF8"
   collation = "en_US.utf8"
 }
 
 resource "azurerm_postgresql_flexible_server_firewall_rule" "azure" {
+  count            = var.use_existing_database ? 0 : 1
   name             = "AllowAzureServices"
-  server_id        = azurerm_postgresql_flexible_server.main.id
+  server_id        = azurerm_postgresql_flexible_server.main[0].id
   start_ip_address = "0.0.0.0"
   end_ip_address   = "255.255.255.255"
 }
@@ -320,6 +342,7 @@ EOF
 }
 
 resource "azurerm_linux_web_app" "backend" {
+  count               = var.deploy_backend ? 1 : 0
   name                = local.backend_name
   resource_group_name = local.resource_group_name
   location            = local.service_plan_location
@@ -334,23 +357,27 @@ resource "azurerm_linux_web_app" "backend" {
     }
   }
 
-  app_settings = {
-    "DOCKER_ENABLE_CI"                        = "true"
-    "WEBSITES_ENABLE_APP_SERVICE_STORAGE"     = "false"
-    "DB_HOST"                                 = azurerm_postgresql_flexible_server.main.fqdn
-    "DB_NAME"                                 = "eduquest"
-    "DB_USER"                                 = "eduadmin"
-    "DB_PASSWORD"                             = random_password.db_password.result
-    "DB_PORT"                                 = "5432"
-    "AZURE_ACCOUNT_NAME"                      = azurerm_storage_account.main.name
-    "AZURE_ACCOUNT_KEY"                       = azurerm_storage_account.main.primary_access_key
-    "AZURE_CONTAINER"                         = azurerm_storage_container.media.name
-    "AZURE_STORAGE_ACCOUNT_CONNECTION_STRING" = azurerm_storage_account.main.primary_connection_string
-    "SECRET_KEY"                              = random_password.secret_key.result
-    "ALLOWED_HOSTS"                           = "localhost,127.0.0.1,${local.backend_name}.azurewebsites.net"
-    "AZURE_AD_CLIENT_ID"                      = local.resolved_azure_ad_client_id
-    "AZURE_AD_CLIENT_SECRET"                  = local.resolved_azure_ad_client_secret
-  }
+  app_settings = merge(
+    {
+      "DOCKER_ENABLE_CI"                    = "true"
+      "WEBSITES_ENABLE_APP_SERVICE_STORAGE" = "false"
+      "DB_HOST"                             = local.db_host
+      "DB_NAME"                             = local.db_name
+      "DB_USER"                             = local.db_user
+      "DB_PASSWORD"                         = local.db_password
+      "DB_PORT"                             = local.db_port
+      "SECRET_KEY"                          = random_password.secret_key.result
+      "ALLOWED_HOSTS"                       = "localhost,127.0.0.1,${local.backend_name}.azurewebsites.net"
+      "AZURE_AD_CLIENT_ID"                  = local.resolved_azure_ad_client_id
+      "AZURE_AD_CLIENT_SECRET"              = local.resolved_azure_ad_client_secret
+    },
+    var.deploy_storage ? {
+      "AZURE_ACCOUNT_NAME"                      = azurerm_storage_account.main[0].name
+      "AZURE_ACCOUNT_KEY"                       = azurerm_storage_account.main[0].primary_access_key
+      "AZURE_CONTAINER"                         = azurerm_storage_container.media[0].name
+      "AZURE_STORAGE_ACCOUNT_CONNECTION_STRING" = azurerm_storage_account.main[0].primary_connection_string
+    } : {}
+  )
 
   lifecycle {
     ignore_changes = [site_config[0].application_stack]
@@ -363,6 +390,7 @@ resource "local_file" "backend_compose" {
 }
 
 resource "null_resource" "backend_docker_compose" {
+  count      = var.deploy_backend ? 1 : 0
   depends_on = [azurerm_linux_web_app.backend, local_file.backend_compose]
 
   provisioner "local-exec" {
@@ -398,6 +426,7 @@ EOF
 }
 
 resource "azurerm_linux_web_app" "microservice" {
+  count               = var.deploy_microservice ? 1 : 0
   name                = local.microservice_name
   resource_group_name = local.resource_group_name
   location            = local.service_plan_location
@@ -412,17 +441,23 @@ resource "azurerm_linux_web_app" "microservice" {
     }
   }
 
-  app_settings = {
-    "DOCKER_ENABLE_CI"                    = "true"
-    "WEBSITES_ENABLE_APP_SERVICE_STORAGE" = "false"
-    "AZURE_STORAGE_CONNECTION_STRING"     = azurerm_storage_account.main.primary_connection_string
-    "AZURE_STORAGE_CONTAINER_NAME"        = azurerm_storage_container.media.name
-    "AZURE_OPENAI_API_KEY"                = azurerm_cognitive_account.openai.primary_access_key
-    "AZURE_OPENAI_ENDPOINT"               = azurerm_cognitive_account.openai.endpoint
-    "AZURE_OPENAI_DEPLOYMENT_NAME"        = azurerm_cognitive_deployment.gpt.name
-    "AZURE_OPENAI_API_VERSION"            = "2024-06-01"
-    "AZURE_OPENAI_TEMPERATURE"            = "0.3"
-  }
+  app_settings = merge(
+    {
+      "DOCKER_ENABLE_CI"                    = "true"
+      "WEBSITES_ENABLE_APP_SERVICE_STORAGE" = "false"
+      "AZURE_OPENAI_API_VERSION"            = "2024-06-01"
+      "AZURE_OPENAI_TEMPERATURE"            = "0.3"
+    },
+    var.deploy_storage ? {
+      "AZURE_STORAGE_CONNECTION_STRING" = azurerm_storage_account.main[0].primary_connection_string
+      "AZURE_STORAGE_CONTAINER_NAME"    = azurerm_storage_container.media[0].name
+    } : {},
+    var.deploy_openai ? {
+      "AZURE_OPENAI_API_KEY"         = azurerm_cognitive_account.openai[0].primary_access_key
+      "AZURE_OPENAI_ENDPOINT"        = azurerm_cognitive_account.openai[0].endpoint
+      "AZURE_OPENAI_DEPLOYMENT_NAME" = azurerm_cognitive_deployment.gpt[0].name
+    } : {}
+  )
 
   lifecycle {
     ignore_changes = [site_config[0].application_stack]
@@ -435,6 +470,7 @@ resource "local_file" "microservice_compose" {
 }
 
 resource "null_resource" "microservice_docker_compose" {
+  count      = var.deploy_microservice ? 1 : 0
   depends_on = [azurerm_linux_web_app.microservice, local_file.microservice_compose]
 
   provisioner "local-exec" {
@@ -467,6 +503,7 @@ EOF
 }
 
 resource "azurerm_linux_web_app" "frontend" {
+  count               = var.deploy_frontend ? 1 : 0
   name                = local.frontend_name
   resource_group_name = local.resource_group_name
   location            = local.service_plan_location
@@ -503,6 +540,7 @@ resource "local_file" "frontend_compose" {
 }
 
 resource "null_resource" "frontend_docker_compose" {
+  count      = var.deploy_frontend ? 1 : 0
   depends_on = [azurerm_linux_web_app.frontend, local_file.frontend_compose]
 
   provisioner "local-exec" {
@@ -522,15 +560,15 @@ output "resource_group" {
 }
 
 output "backend_url" {
-  value = "https://${azurerm_linux_web_app.backend.default_hostname}"
+  value = var.deploy_backend ? "https://${azurerm_linux_web_app.backend[0].default_hostname}" : null
 }
 
 output "microservice_url" {
-  value = "https://${azurerm_linux_web_app.microservice.default_hostname}"
+  value = var.deploy_microservice ? "https://${azurerm_linux_web_app.microservice[0].default_hostname}" : null
 }
 
 output "frontend_url" {
-  value = "https://${azurerm_linux_web_app.frontend.default_hostname}"
+  value = var.deploy_frontend ? "https://${azurerm_linux_web_app.frontend[0].default_hostname}" : null
 }
 
 output "db_password" {
@@ -539,23 +577,23 @@ output "db_password" {
 }
 
 output "storage_connection_string" {
-  value     = azurerm_storage_account.main.primary_connection_string
+  value     = var.deploy_storage ? azurerm_storage_account.main[0].primary_connection_string : null
   sensitive = true
 }
 
 # Azure OpenAI outputs (auto-created)
 output "openai_endpoint" {
   description = "Azure OpenAI endpoint URL"
-  value       = azurerm_cognitive_account.openai.endpoint
+  value       = var.deploy_openai ? azurerm_cognitive_account.openai[0].endpoint : null
 }
 
 output "openai_api_key" {
   description = "Azure OpenAI API key"
-  value       = azurerm_cognitive_account.openai.primary_access_key
+  value       = var.deploy_openai ? azurerm_cognitive_account.openai[0].primary_access_key : null
   sensitive   = true
 }
 
 output "openai_deployment_name" {
   description = "Azure OpenAI deployment name"
-  value       = azurerm_cognitive_deployment.gpt.name
+  value       = var.deploy_openai ? azurerm_cognitive_deployment.gpt[0].name : null
 }

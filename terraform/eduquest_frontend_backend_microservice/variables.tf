@@ -63,6 +63,18 @@ variable "openai_location" {
   default     = "eastus"
 }
 
+variable "openai_resource_name" {
+  description = "Name of the Azure OpenAI resource"
+  type        = string
+  default     = "eduquest-openaiazure"
+}
+
+variable "openai_custom_subdomain_name" {
+  description = "Custom subdomain name for the Azure OpenAI endpoint"
+  type        = string
+  default     = "eduquest-openaiazure"
+}
+
 variable "openai_deployment_name" {
   description = "Deployment name for the OpenAI model"
   type        = string
@@ -102,8 +114,87 @@ variable "existing_app_service_plan_name" {
   default     = "fyp-shared-appserviceplan"
 }
 
+variable "existing_app_service_plan_resource_group_name" {
+  description = "Resource group name of the existing App Service Plan (if different from main resource group)"
+  type        = string
+  default     = ""
+}
+
 variable "use_existing_resources" {
   description = "Whether to use existing resource group and app service plan"
   type        = bool
   default     = true
+}
+
+# ============================================
+# DEPLOYMENT OPTIONS - Choose which resources to deploy
+# ============================================
+variable "deploy_openai" {
+  description = "Deploy Azure OpenAI resource"
+  type        = bool
+  default     = true
+}
+
+variable "deploy_backend" {
+  description = "Deploy backend web app (Django)"
+  type        = bool
+  default     = true
+}
+
+variable "deploy_microservice" {
+  description = "Deploy microservice web app (Flask)"
+  type        = bool
+  default     = true
+}
+
+variable "deploy_frontend" {
+  description = "Deploy frontend web app (Next.js)"
+  type        = bool
+  default     = true
+}
+
+variable "deploy_storage" {
+  description = "Deploy storage account and container"
+  type        = bool
+  default     = true
+}
+
+# ============================================
+# EXISTING DATABASE (from professor)
+# ============================================
+variable "use_existing_database" {
+  description = "Whether to use an existing PostgreSQL database"
+  type        = bool
+  default     = false
+}
+
+variable "existing_database_host" {
+  description = "Hostname of the existing PostgreSQL database"
+  type        = string
+  default     = ""
+}
+
+variable "existing_database_user" {
+  description = "Username for the existing PostgreSQL database"
+  type        = string
+  default     = "postgres"
+}
+
+variable "existing_database_name" {
+  description = "Database name"
+  type        = string
+  default     = ""
+}
+
+variable "existing_database_password" {
+  description = "Password for the existing PostgreSQL database"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "existing_database_port" {
+  description = "Port for the existing PostgreSQL database"
+  type        = string
+  default     = "5432"
 }

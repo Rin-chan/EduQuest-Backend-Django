@@ -44,6 +44,8 @@ use_app_registration_outputs = true
 # AZURE OPENAI (optional - defaults shown)
 # ============================================
 openai_location        = "eastus"          # Region for OpenAI
+openai_resource_name   = "eduquest-openaiazure" # Azure OpenAI resource name
+openai_custom_subdomain_name = "eduquest-openaiazure" # Azure OpenAI endpoint subdomain
 openai_deployment_name = "gpt-4o"          # Deployment name
 openai_model_name      = "gpt-4o"          # Model to deploy
 openai_model_version   = "2024-11-20"      # Model version
