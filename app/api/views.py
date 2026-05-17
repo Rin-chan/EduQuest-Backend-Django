@@ -38,7 +38,8 @@ from .models import (
     UserCourseBadge,
     Document,
     StudentFeedback,
-    StudentAttendanceOverride
+    StudentAttendanceOverride,
+    UserDailyCheckin
 )
 from .serializers import (
     EduquestUserSerializer,
@@ -246,6 +247,8 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
                 'daily_checkin_longest_streak',
                 'total_points',
             ])
+            # Create a record in UserDailyCheckin to track all check-in dates
+            UserDailyCheckin.objects.create(student=user, checkin_date=today)
 
         return Response({
             "checked_in": True,

@@ -20,6 +20,7 @@ from .models import (
     UserCourseBadge,
     Document,
     StudentFeedback,
+    UserDailyCheckin,
 )
 
 
@@ -28,7 +29,7 @@ class EduquestUserSerializer(serializers.ModelSerializer):
         model = EduquestUser
         fields = ['id', 'first_name', 'last_name', 'username', 'email', 'nickname', 'last_login',
                   'updated_at', 'is_superuser', 'is_active', 'is_staff', 'total_points',
-                  'daily_checkin_streak', 'daily_checkin_longest_streak', 'daily_checkin_last_date']
+                  'daily_checkin_streak', 'daily_checkin_longest_streak', 'daily_checkin_last_date', 'daily_goals']
         read_only_fields = ['first_name', 'last_name', 'is_superuser', 'updated_at', 'username']
 
     # def create(self, validated_data):
@@ -677,4 +678,11 @@ class StudentFeedbackSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentFeedback
         fields = '__all__'
+
+
+class UserDailyCheckinSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserDailyCheckin
+        fields = ['id', 'student', 'checkin_date']
+        read_only_fields = ['id']
 

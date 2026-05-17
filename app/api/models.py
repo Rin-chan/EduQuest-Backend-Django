@@ -25,6 +25,7 @@ class EduquestUser(AbstractUser):
     daily_checkin_streak = models.PositiveIntegerField(default=0)
     daily_checkin_longest_streak = models.PositiveIntegerField(default=0)
     daily_checkin_last_date = models.DateField(null=True, blank=True)
+    daily_goals = models.JSONField(default=list, blank=True)  # [{goal: str, completed: bool}, ...]
 
     def __str__(self):
         return f"{self.id} - {self.username}"
@@ -588,3 +589,19 @@ class StudentAttendanceOverride(models.Model):
     def __str__(self):
         state = 'Present' if self.is_present else 'Absent'
         return f"{self.student.username} - {self.quest.name} ({state})"
+
+
+class UserDailyCheckin(models.Model):
+    """
+    Model to store all daily check-in records for users
+    This allows tracking the complete history of check-in dates instead of just the last one
+    """
+    student = models.ForeignKey(EduquestUser, on_delete=models.CASCADE, related_name='daily_checkins')
+    checkin_date = models.DateField()
+
+    class Meta:
+        unique_together = ('student', 'checkin_date')
+        ordering = ['-checkin_date']
+
+    def __str__(self):
+        return f"{self.student.username} checked in on {self.checkin_date}"
