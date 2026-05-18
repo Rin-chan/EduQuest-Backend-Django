@@ -22,6 +22,7 @@ class EduquestUser(AbstractUser):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     total_points = models.FloatField(default=0)
+    current_points = models.FloatField(default=0)
     daily_checkin_streak = models.PositiveIntegerField(default=0)
     daily_checkin_longest_streak = models.PositiveIntegerField(default=0)
     daily_checkin_last_date = models.DateField(null=True, blank=True)

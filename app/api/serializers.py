@@ -29,7 +29,7 @@ class EduquestUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = EduquestUser
         fields = ['id', 'first_name', 'last_name', 'username', 'email', 'nickname', 'last_login',
-                  'updated_at', 'is_superuser', 'is_active', 'is_staff', 'total_points',
+                  'updated_at', 'is_superuser', 'is_active', 'is_staff', 'total_points', 'current_points',
                   'daily_checkin_streak', 'daily_checkin_longest_streak', 'daily_checkin_last_date', 'daily_goals']
         read_only_fields = ['first_name', 'last_name', 'is_superuser', 'updated_at', 'username']
 
