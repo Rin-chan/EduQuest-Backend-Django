@@ -253,7 +253,7 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
                 'current_points',
             ])
             # Create a record in UserDailyCheckin to track all check-in dates
-            UserDailyCheckin.objects.create(student=user, checkin_date=today)
+            UserDailyCheckin.objects.get_or_create(student=user, checkin_date=today)
 
         return Response({
             "checked_in": True,
