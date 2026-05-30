@@ -294,8 +294,27 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Invalid user context"}, status=status.HTTP_400_BAD_REQUEST)
 
         daily_goals = request.data.get('daily_goals')
-        user.daily_goals = daily_goals
-        user.save(update_fields=['daily_goals'])
+        if daily_goals is not None:
+            with transaction.atomic():
+                user = EduquestUser.objects.select_for_update().get(pk=user.pk)
+                current_goals_by_id = {
+                    goal.get('id'): goal
+                    for goal in user.daily_goals or []
+                    if goal.get('id') is not None
+                }
+                merged_goals = []
+                for goal in daily_goals:
+                    merged_goal = goal.copy()
+                    current_goal = current_goals_by_id.get(merged_goal.get('id'))
+                    if current_goal:
+                        merged_goal['complete'] = max(
+                            float(current_goal.get('complete') or 0),
+                            float(merged_goal.get('complete') or 0)
+                        )
+                    merged_goals.append(merged_goal)
+
+                user.daily_goals = merged_goals
+            user.save(update_fields=['daily_goals'])
 
         return Response({"detail": "Daily goals updated successfully"}, status=status.HTTP_200_OK)
 

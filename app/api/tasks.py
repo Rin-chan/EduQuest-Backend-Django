@@ -90,7 +90,11 @@ def calculate_score_and_issue_points(user_quest_attempt_id):
                 instance.student.total_points += points_to_add
                 instance.student.current_points += points_to_add
 
-                instance.student.save(update_fields=['total_points', 'current_points'])
+                for goals in instance.student.daily_goals:
+                    if goals['task'] == 2:
+                        goals['complete'] = goals['complete'] + points_to_add
+
+                instance.student.save(update_fields=['total_points', 'current_points', 'daily_goals'])
                 return f"[Update User Points] User {instance.student.username} earned {points_to_add} points for quest attempt {instance.id}"
 
             return f"[Update User Points] User {instance.student.username} did not earn any points for quest attempt {instance.id}"
