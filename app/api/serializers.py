@@ -644,13 +644,15 @@ class UserCosmeticsSerializer(serializers.ModelSerializer):
         write_only=True,
         allow_null=True
     )
-    displayed_badges = serializers.PrimaryKeyRelatedField(
-        queryset=Badge.objects.all(),
+    displayed_badges = BadgeSerializer(
         many=True,
+        read_only=True,
+        allow_null=True,
     )
-    owns = serializers.PrimaryKeyRelatedField(
-        queryset=Cosmetic.objects.all(),
-        many=True
+    owns = CosmeticSerializer(
+        many=True,
+        read_only=True,
+        allow_null=True
     )
 
     class Meta:
@@ -671,11 +673,19 @@ class UserCosmeticsSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         displayed_badges = validated_data.pop('displayed_badges', None)
+        owns = validated_data.pop('owns', None)
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+
         instance.save()
+
         if displayed_badges is not None:
             instance.displayed_badges.set(displayed_badges)
+
+        if owns is not None:
+            instance.owns.set(owns)
+
         return instance
 
 
