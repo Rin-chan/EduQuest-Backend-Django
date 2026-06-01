@@ -333,9 +333,37 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
         if not isinstance(user, EduquestUser):
             return Response({"detail": "Invalid user context"}, status=status.HTTP_400_BAD_REQUEST)
         
-        queryset = UserCosmetics.objects.get(user=user)
+        queryset = UserCosmetics.objects.select_related('profile_picture', 'profile_border', 'banner').get(user=user)
         serializer = UserCosmeticsSerializer(queryset)
         return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'], url_path='update-cosmetic')
+    def update_cosmetic(self, request):
+        user = request.user
+        if not isinstance(user, EduquestUser):
+            return Response({"detail": "Invalid user context"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        userCosmetic, _ = UserCosmetics.objects.get_or_create(user=user)
+        cosmetic = request.data.get('cosmetic')
+        if not cosmetic:
+            return Response({"detail": "cosmetic change is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        profile_picture = None
+        if (cosmetic['profile_picture'] and cosmetic['profile_picture'].get('id') is not None):
+            profile_picture = Cosmetic.objects.filter(id=cosmetic['profile_picture']['id']).first()
+        userCosmetic.profile_picture = profile_picture
+
+        userCosmetic.profile_background = cosmetic['profile_background']
+        userCosmetic.profile_border = None
+        userCosmetic.banner = None
+        userCosmetic.about_me = ''
+
+        # IMPORTANT: ManyToMany update
+        badges = cosmetic.get('displayed_badges', [])
+        userCosmetic.displayed_badges.set(badges)
+
+        userCosmetic.save()
+        return Response({"detail": "User cosmetics updated successfully"}, status=status.HTTP_200_OK)
 
 class AcademicYearViewSet(viewsets.ModelViewSet):
     queryset = AcademicYear.objects.all().order_by('-id')
