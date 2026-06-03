@@ -366,7 +366,7 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
         if (cosmetic['banner'] and cosmetic['banner'].get('id') is not None):
             userCosmetic.banner = Cosmetic.objects.filter(id=cosmetic['banner']['id']).first()
 
-        userCosmetic.about_me = ''
+        userCosmetic.about_me = cosmetic.get('about_me')
 
         badges = cosmetic.get('displayed_badges', [])
         UserCosmeticBadge.objects.filter(user=user).delete()
