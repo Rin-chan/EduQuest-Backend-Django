@@ -12,6 +12,8 @@ from .views import (
     AnswerViewSet,
     UserQuestAttemptViewSet,
     UserAnswerAttemptViewSet,
+    TestScoreViewSet,
+    UserTestScoreViewSet,
     BadgeViewSet,
     UserQuestBadgeViewSet,
     UserCourseBadgeViewSet,
@@ -47,6 +49,8 @@ router.register(r'questions', QuestionViewSet, basename='questions')
 router.register(r'answers', AnswerViewSet, basename='answers')
 router.register(r'user-quest-attempts', UserQuestAttemptViewSet, basename='user-quest-attempts')
 router.register(r'user-answer-attempts', UserAnswerAttemptViewSet, basename='user-answer-attempts')
+router.register(r'test-scores', TestScoreViewSet, basename='test-scores')
+router.register(r'user-test-scores', UserTestScoreViewSet, basename='user-test-scores')
 router.register(r'badges', BadgeViewSet, basename='badges')
 router.register(r'user-quest-badges', UserQuestBadgeViewSet, basename='user-quest-badges')
 router.register(r'user-course-badges', UserCourseBadgeViewSet, basename='user-course-badges')

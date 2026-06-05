@@ -12,6 +12,7 @@ class Excel():
         self.user_list = []
         self.question_list = []
         self.question_type_mapping_list = []
+        self.user_test_score_list = []
 
     def read_excel_sheets(self, excel_file):
         self.xls = pd.ExcelFile(excel_file, engine='openpyxl')
@@ -172,3 +173,23 @@ class Excel():
 
         print(f"Getting {email} Answer Attempts...Complete!\n")
         return user_answer_attempt_list
+    
+    def get_test_scores(self):
+        print("Getting test scores: Starting...")
+        num_rows = self.main_results_sheet.shape[0]
+        print(f"Getting test scores: Number of rows: {num_rows}")
+
+        header = 0
+        # Remove header if exists
+        if (str(self.main_results_sheet.iloc[0, 0]).upper() == 'EMAIL'):
+            header = 1
+
+        for i in range(header, num_rows):
+            user_score = dict()
+            user_score['email'] = self.main_results_sheet.iloc[i, 0].upper()
+            user_score['score'] = float(self.main_results_sheet.iloc[i, 1])
+            self.user_test_score_list.append(user_score)
+
+
+        print("Getting test scores: Completed!\n")
+        return self.user_test_score_list

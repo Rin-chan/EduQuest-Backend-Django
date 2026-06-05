@@ -15,6 +15,8 @@ from .models import (
     Answer,
     UserQuestAttempt,
     UserAnswerAttempt,
+    TestScore,
+    UserTestScore,
     Badge,
     UserQuestBadge,
     UserCourseBadge,
@@ -591,6 +593,57 @@ class BulkUpdateUserAnswerAttemptSerializer(serializers.Serializer):
         # Optionally return the updated records or a success message
         return user_answer_attempts
 
+class TestScoreSerializer(serializers.ModelSerializer):
+    course_group_id = serializers.PrimaryKeyRelatedField(
+        queryset=CourseGroup.objects.all(),
+        source='course_group',
+        write_only=True
+    )
+    organiser_id = serializers.PrimaryKeyRelatedField(
+        queryset=EduquestUser.objects.all(),
+        source='organiser',
+        write_only=True
+    )
+
+    course_group = CourseGroupSerializer(read_only=True)
+    organiser = EduquestUserSummarySerializer(read_only=True)
+
+    class Meta:
+        model = TestScore
+        fields = '__all__'
+
+    def update(self, instance, validated_data):
+        course_group = validated_data.pop('course_group', None)
+        if course_group:
+            instance.course_group = course_group
+
+        organiser = validated_data.pop('organiser', None)
+        if organiser:
+            instance.organiser = organiser
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
+    
+class UserTestScoreSerializer(serializers.ModelSerializer):
+    test_id = serializers.PrimaryKeyRelatedField(
+        queryset=CourseGroup.objects.all(),
+        source='test_score',
+        write_only=True
+    )
+    student_id = serializers.PrimaryKeyRelatedField(
+        queryset=EduquestUser.objects.all(),
+        source='student',
+        write_only=True
+    )
+
+    test = TestScoreSerializer(read_only=True)
+    student = EduquestUserSummarySerializer(read_only=True)
+
+    class Meta:
+        model = UserTestScore
+        fields = '__all__'
 
 class BadgeSerializer(serializers.ModelSerializer):
     image_id = serializers.PrimaryKeyRelatedField(

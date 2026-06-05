@@ -12,6 +12,8 @@ from .models import (
     Answer,
     UserQuestAttempt,
     UserAnswerAttempt,
+    TestScore,
+    UserTestScore,
     Badge,
     UserQuestBadge,
     UserCourseBadge,
@@ -32,6 +34,8 @@ admin.site.register(Question)
 admin.site.register(Answer)
 admin.site.register(UserAnswerAttempt)
 admin.site.register(UserQuestAttempt)
+admin.site.register(TestScore)
+admin.site.register(UserTestScore)
 admin.site.register(Badge)
 admin.site.register(UserQuestBadge)
 admin.site.register(UserCourseBadge)

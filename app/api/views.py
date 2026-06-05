@@ -34,6 +34,8 @@ from .models import (
     Answer,
     UserQuestAttempt,
     UserAnswerAttempt,
+    TestScore,
+    UserTestScore,
     Badge,
     UserQuestBadge,
     UserCourseBadge,
@@ -58,6 +60,8 @@ from .serializers import (
     AnswerSerializer,
     UserQuestAttemptSerializer,
     UserAnswerAttemptSerializer,
+    TestScoreSerializer,
+    UserTestScoreSerializer,
     BadgeSerializer,
     UserQuestBadgeSerializer,
     UserCourseBadgeSerializer,
@@ -336,7 +340,11 @@ class EduquestUserViewSet(viewsets.ModelViewSet):
         if not isinstance(user, EduquestUser):
             return Response({"detail": "Invalid user context"}, status=status.HTTP_400_BAD_REQUEST)
         
-        queryset = UserCosmetics.objects.select_related('profile_picture', 'profile_border', 'banner').get(user=user)
+        try:
+            queryset = UserCosmetics.objects.select_related('profile_picture', 'profile_border', 'banner').get(user=user)
+        except Exception:
+            queryset = UserCosmetics.objects.select_related('profile_picture', 'profile_border', 'banner').create(user=user)
+
         serializer = UserCosmeticsSerializer(queryset)
         badgeQuery = UserCosmeticBadge.objects.filter(user=user).select_related('badge').order_by('display_order')
         badges = [x.badge for x in badgeQuery]
@@ -924,6 +932,140 @@ class UserQuestAttemptViewSet(viewsets.ModelViewSet):
     #
     #     return Response({"error": "Expected a list of data."}, status=status.HTTP_400_BAD_REQUEST)
 
+class TestScoreViewSet(viewsets.ModelViewSet):
+    queryset = TestScore.objects.all().order_by('-id')
+    serializer_class = TestScoreSerializer
+    permission_classes = [IsAuthenticated]
+    
+    @action(detail=False, methods=['get'])
+    def by_course_group(self, request):
+        course_group_id = request.query_params.get('course_group_id')
+        queryset = TestScore.objects.filter(course_group=course_group_id).order_by('-id')
+        serializer = TestScoreSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'])
+    def update_test_score_weightage(self, request):
+        test_id = request.query_params.get('id')
+        weightage = request.query_params.get('weightage')
+
+        if test_id is not None and weightage is not None:
+            with transaction.atomic():
+                test = TestScore.objects.get(id=test_id)
+
+                if test is None:
+                    return Response({"error": "Cannot find test"}, status=status.HTTP_400_BAD_REQUEST)
+                
+                test.weightage = weightage
+                test.save(update_fields=['weightage'])
+
+        return Response({"detail": "Weightage updated successfully"}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'])
+    def import_test_score(self, request):
+        try:
+            excel_file = request.FILES.get('file')
+        except Exception as e:
+            return Response(
+                {"Error processing excel file": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not excel_file:
+            return Response(
+                {"No file provided, please try again"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            excel = Excel()
+            excel.read_excel_sheets(excel_file)
+            test_scores = excel.get_test_scores()
+        except Exception as e:
+            return Response(
+                {"Error processing excel file": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Use atomic transaction to ensure data integrity
+        with transaction.atomic():
+            try:
+                user_id = request.data.get('user_id')
+                if not user_id:
+                    return Response({"detail": "Invalid user context"}, status=status.HTTP_400_BAD_REQUEST)
+                
+                organiser = EduquestUser.objects.get(id=user_id)
+                test = TestScore.objects.create(
+                    course_group_id=request.data.get('course_group_id'),
+                    name=request.data.get('name'),
+                    organiser=organiser,
+                    weightage=request.data.get('weightage'),
+                )
+
+                for individual_user in test_scores:
+                    email = str(individual_user['email']).strip().upper() 
+                    if not email:
+                        continue
+
+                    user = EduquestUser.objects.get(email=email)
+                    UserTestScore.objects.create(
+                        test=test,
+                        student=user,
+                        score=individual_user['score']
+                    )
+
+            except ValidationError as ve:
+                return Response(
+                    {"Validation Error": ve.detail},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            except Exception as e:
+                return Response(
+                    {"Error importing quest": str(e)},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        return Response("Added test scores", status=status.HTTP_201_CREATED)
+
+class UserTestScoreViewSet(viewsets.ModelViewSet):
+    queryset = UserTestScore.objects.all().order_by('-id')
+    serializer_class = UserTestScoreSerializer
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def by_test(self, request):
+        test_id = request.query_params.get('test_id')
+        queryset = UserTestScore.objects.select_related('student').filter(test_id=test_id).order_by('-id')
+        serializer = UserTestScoreSerializer(queryset, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def by_user(self, request):
+        user_id = request.query_params.get('user_id')
+        queryset = UserTestScore.objects.select_related('student').filter(user_id=user_id).order_by('-id')
+        serializer = UserTestScoreSerializer(queryset, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def by_test_and_user(self, request):
+        test_id = request.query_params.get('test_id')
+        user_id = request.query_params.get('user_id')
+        queryset = UserTestScore.objects.select_related('student').filter(test_id=test_id, user_id=user_id).order_by('-id')
+        serializer = UserTestScoreSerializer(queryset, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'])
+    def update_user_test_scores(self, request):
+        testScoreList = request.data
+        if testScoreList is not None:
+            with transaction.atomic():
+                for testScore in testScoreList:
+                    userScore = UserTestScore.objects.get(id=testScore['id'])
+                    userScore.score = testScore['score']
+                
+                    userScore.save(update_fields=['score'])
+
+        return Response({"detail": "User test scores updated successfully"}, status=status.HTTP_200_OK)
 
 class StudentFeedbackViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = StudentFeedback.objects.all().order_by('-datetime_created')

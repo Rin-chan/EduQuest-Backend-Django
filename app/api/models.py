@@ -427,6 +427,30 @@ class UserAnswerAttempt(models.Model):
     def __str__(self):
         return f"{self.user_quest_attempt.student.username} selected {self.answer.text} for question {self.question.number}"
 
+class TestScore(models.Model):
+    """
+    Model to store test scores for each course group
+    One course group can have many test scores
+    """
+    course_group = models.ForeignKey(CourseGroup, on_delete=models.CASCADE)
+    name = models.CharField(max_length=100)
+    organiser = models.ForeignKey(EduquestUser, on_delete=models.CASCADE)
+    weightage = models.FloatField(default=100)
+
+    def __str__(self):
+        return f"{self.name} from Group {self.course_group.course.name} {self.course_group.course.code}"
+
+class UserTestScore(models.Model):
+    """
+    Model to store user test scores for each test
+    One test can have many test scores
+    """
+    test = models.ForeignKey(TestScore, on_delete=models.CASCADE)
+    student = models.ForeignKey(EduquestUser, on_delete=models.CASCADE)
+    score = models.FloatField(default=0)
+
+    def __str__(self):
+        return f"{self.student} from Test {self.test}"
 
 class Badge(models.Model):
     """
@@ -551,10 +575,10 @@ class UserCosmetics(models.Model):
     """
     user = models.OneToOneField(EduquestUser, on_delete=models.CASCADE)
     profile_picture = models.ForeignKey(Cosmetic, on_delete=models.SET_NULL, null=True, blank=True, related_name='usercosmetics_profile_picture')
-    profile_background = models.CharField(max_length=255, blank=True, default="")
+    profile_background = models.CharField(max_length=50, blank=True, default="")
     profile_border = models.ForeignKey(Cosmetic, on_delete=models.SET_NULL, null=True, blank=True, related_name='usercosmetics_profile_border')
     banner = models.ForeignKey(Cosmetic, on_delete=models.SET_NULL, null=True, blank=True, related_name='usercosmetics_banner')
-    about_me = models.TextField(blank=True, default="")
+    about_me = models.TextField(max_length=255, blank=True, default="")
     owns = models.ManyToManyField(Cosmetic, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
