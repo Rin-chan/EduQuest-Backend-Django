@@ -482,7 +482,7 @@ def generate_personalised_feedback(user_quest_attempt_id):
         }
 
         # Call Flask microservice to generate feedback (OUTSIDE the loop)
-        FLASK_URL = getattr(settings, 'FLASK_MICROSERVICE_URL', 'http://app:5000')
+        FLASK_URL = getattr(settings, 'FLASK_MICROSERVICE_URL', 'http://localhost:5000')
         logger.info("[Feedback] Calling Flask microservice at %s", FLASK_URL)
 
         if user_quest_attempt.short_answer_attempts.all():

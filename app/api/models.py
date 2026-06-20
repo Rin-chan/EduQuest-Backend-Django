@@ -346,13 +346,12 @@ class UserQuestAttempt(models.Model):
         questions = self.quest.questions.all()
 
 
-        print("IN")
         if questions and (questions[0].question_type == "short_ans" or questions[0].question_type == "latex_short_ans"):
             for question in questions:
                 user_answer = self.short_answer_attempts.get(question=question)
+                question_score = 0
                 
-                print("IN2")
-                FLASK_URL = getattr(settings, 'FLASK_MICROSERVICE_URL', 'http://app:5000')
+                FLASK_URL = getattr(settings, 'FLASK_MICROSERVICE_URL', 'http://localhost:5000')
                 print(f"user answer question {user_answer.question.text}\nuser answer reason {user_answer.unstructuredanswer.reason}\nuser answer text {user_answer.text}")
                 response = requests.post(
                     f"{FLASK_URL}/generate_short_ans_score",
@@ -361,12 +360,12 @@ class UserQuestAttempt(models.Model):
                         'expected_answer': user_answer.unstructuredanswer.reason,
                         'student_answer': user_answer.text
                     },
-                    timeout=30
+                    timeout=60
                 )
 
                 if response.status_code == 200:
                     question_score = response.json().get('score', '')
-                    print(f"[Short Answer Score Generated] for {user_answer.student.username}")
+                    print(f"[Short Answer Score Generated] for {user_answer.question}")
                 else:
                     print(f"[Short Answer Score Error] Status: {response.status_code}")
 
