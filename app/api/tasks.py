@@ -5,6 +5,7 @@ from django.utils import timezone
 from django.db.models import Max, Q
 import requests
 from django.conf import settings
+from collections import defaultdict
 
 from api.models import EduquestUser, StudentCognitiveProfile, StudentFeedback, UserQuestAttempt
 
@@ -407,44 +408,69 @@ def award_top_ranker_badge(course_id):
     Award the "Top Ranker" badge to the user who ranked first for the course.
     Triggered when a course expires.
     """
-    from .models import CourseGroup, Quest, UserCourseGroupEnrollment, UserCourseBadge, Badge, UserQuestAttempt
+    from .models import CourseGroup, Quest, UserCourseGroupEnrollment, UserCourseBadge, Badge, UserQuestAttempt, TestScore, UserTestScore
     try:
         course_groups = CourseGroup.objects.filter(course_id=course_id)
         if not course_groups.exists():
             return f"[Top Ranker] No course groups found for course: {course_id}"
 
-        top_ranker = Badge.objects.get(name="Top Ranker")
+        top_ranker_badge = Badge.objects.get(name="Top Ranker")
 
         for course_group in course_groups:
-            tutorial_quests = Quest.objects.filter(course_group=course_group).exclude(type="Private").filter(
-                Q(tutorial_date__isnull=False) | Q(type__in=["Kahoot!", "Wooclap", "Wooclap!", "WooClap"])
+            student_scores = defaultdict(float)
+
+            enrollments = UserCourseGroupEnrollment.objects.filter(course_group=course_group).select_related("student")
+
+            quests = Quest.objects.filter(course_group=course_group)
+
+            quest_attempts = UserQuestAttempt.objects.filter(
+                quest__in=quests,
+                student__in=[e.student for e in enrollments]
             )
-            total_tutorials = tutorial_quests.count()
-            if total_tutorials == 0:
-                continue
 
-            enrollments = UserCourseGroupEnrollment.objects.filter(course_group=course_group)
-            for enrollment in enrollments:
-                completed_tutorials = UserQuestAttempt.objects.filter(
-                    student=enrollment.student,
-                    quest__in=tutorial_quests,
-                    submitted=True
-                ).values("quest_id").distinct().count()
+            for attempt in quest_attempts:
+                student_scores[attempt.student_id] += (
+                    attempt.total_score_achieved or 0
+                )
+            
+            tests = TestScore.objects.filter(course_group=course_group)
 
-                ratio = completed_tutorials / total_tutorials
-                if ratio >= 0.7:
-                    badge = full_badge
-                elif ratio > 0.5 and ratio < 0.7:
-                    badge = half_badge
-                else:
-                    continue
+            test_scores = UserTestScore.objects.filter(
+                test__in=tests,
+                student__in=[e.student for e in enrollments]
+            ).select_related("test")
 
+            for test_score in test_scores:
+                weightage = test_score.test.weightage or 0
+
+                weighted_score = (
+                    (test_score.score or 0)
+                    * (weightage / 100)
+                )
+
+                student_scores[test_score.student_id] += weighted_score
+
+            if not student_scores:
+                return f"[Top Ranker] No attempts with the highest score for course: {course_id}"
+            
+            highest_score = max(student_scores.values())
+            top_student_ids = [
+                student_id
+                for student_id, score in student_scores.items()
+                if score == highest_score
+            ]
+
+            top_rankering_students = enrollments.filter(
+                student_id__in=top_student_ids
+            )
+
+            for top_student in top_rankering_students:
                 user_course_badge, created = UserCourseBadge.objects.get_or_create(
-                    badge=badge,
-                    user_course_group_enrollment=enrollment
+                    badge=top_ranker_badge,
+                    user_course_group_enrollment=top_student
                 )
                 if created:
-                    award_badge_points(enrollment.student, "Top Ranker")
+                    award_badge_points(top_student.student, "Top Ranker")
 
         return f"[Top Ranker] Awarded top ranker badges for course: {course_id}"
     except Badge.DoesNotExist:
@@ -462,17 +488,18 @@ def award_consecutive_30days_badge(user_id):
     """
     from .models import EduquestUser, UserOtherBadge, Badge
     try:
-        user = EduquestUser.objects.get(user_id=user_id)
+        print(user_id)
+        user = EduquestUser.objects.get(id=user_id)
 
         if user.daily_checkin_streak < 30:
             return f"[Consecutive 30 days] Skipping user: {user.username}"
 
         badge = Badge.objects.get(name="Consecutive 30 Days")
-        logger.info(f"[Consecutive 30 days] {user.username} bought at least 10 cosmetic ")
+        logger.info(f"[Consecutive 30 days] {user.username} has logged in for 30 days")
 
         user_other_badge, created = UserOtherBadge.objects.get_or_create(
             badge=badge,
-            user=user
+            user_id=user
         )
         if created:
             award_badge_points(user, "Consecutive 30 days")
@@ -491,17 +518,17 @@ def award_semester_badge(user_id):
     """
     from .models import EduquestUser, UserOtherBadge, Badge
     try:
-        user = EduquestUser.objects.get(user_id=user_id)
+        user = EduquestUser.objects.get(id=user_id)
 
         if user.daily_checkin_streak < 84:
             return f"[Semester] Skipping user cosmetic: {user.username}"
 
         badge = Badge.objects.get(name="Semester")
-        logger.info(f"[Semester] {user.username} bought at least 10 cosmetic ")
+        logger.info(f"[Semester] {user.username} has logged in for 84 days")
 
         user_other_badge, created = UserOtherBadge.objects.get_or_create(
             badge=badge,
-            user=user
+            user_id=user
         )
         if created:
             award_badge_points(user, "Semester")
@@ -522,15 +549,15 @@ def award_hoarder_badge(user_id):
     try:
         userCosmetics = UserCosmetics.objects.get(user_id=user_id)
 
-        if userCosmetics.owns == None or len(userCosmetics.owns) < 10:
+        if userCosmetics.owns == None or userCosmetics.owns.count() < 10:
             return f"[Hoarder] Skipping user cosmetic: {userCosmetics.user.username}"
 
         badge = Badge.objects.get(name="Hoarder")
-        logger.info(f"[Hoarder] {userCosmetics.user.username} bought at least 10 cosmetic ")
+        logger.info(f"[Hoarder] {userCosmetics.user.username} bought at least 10 cosmetic")
 
         user_other_badge, created = UserOtherBadge.objects.get_or_create(
             badge=badge,
-            user=userCosmetics.user
+            user_id=userCosmetics.user
         )
         if created:
             award_badge_points(userCosmetics.user, "Hoarder")
