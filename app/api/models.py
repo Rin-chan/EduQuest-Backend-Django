@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 import os
 import requests
+import math
 
 from celery import chain
 from django.db import models
@@ -39,7 +40,11 @@ class EduquestUser(AbstractUser):
         if is_new:
             self.nickname = self.username.replace("#", "")
             self.first_name, self.last_name = split_full_name(self.nickname)
+        old_instance = None
+        if not is_new:
+            old_instance = EduquestUser.objects.get(id=self.id)
         super().save(*args, **kwargs)
+
         if is_new and not self.is_superuser:
             # Ensure private learning path exists, then enroll the user.
             private_course_group = CourseGroup.objects.filter(name="Private Course Group").first()
@@ -94,6 +99,19 @@ class EduquestUser(AbstractUser):
             UserCourseGroupEnrollment.objects.get_or_create(student=self, course_group=private_course_group)
             UserCosmetics.objects.get_or_create(user=self)
             print(f"[Enroll Private Course Group] User: {self.username} has been enrolled in the Private course group")
+    
+        if old_instance.daily_checkin_streak == 29 and self.daily_checkin_streak == 30 and self.daily_checkin_longest_streak == 30:
+            from .tasks import award_consecutive_30days_badge
+            award_consecutive_30days_badge.delay(self.id)
+        
+        if old_instance.daily_checkin_streak == 83 and self.daily_checkin_streak == 84 and self.daily_checkin_longest_streak == 84:
+            from .tasks import award_semester_badge
+            award_semester_badge.delay(self.id)
+
+        if self.total_points > 100 and math.floor(old_instance.total_points) != math.floor(self.total_points):
+            from .tasks import award_level_border
+            award_level_border.delay(self.id)
+
 
 
 class Image(models.Model):
@@ -173,10 +191,11 @@ class Course(models.Model):
         # After saving the instance, check if 'status' changed from Active to Expired
         if old_status_value == 'Active' and self.status == 'Expired':
             # Import tasks locally to avoid circular import
-            from .tasks import check_course_completion_and_award_completionist_badge, award_tutorial_attendance_badges_for_course
+            from .tasks import check_course_completion_and_award_completionist_badge, award_tutorial_attendance_badges_for_course, award_top_ranker_badge
             # Trigger all tasks
             check_course_completion_and_award_completionist_badge.delay(self.id)
             award_tutorial_attendance_badges_for_course.delay(self.id)
+            award_top_ranker_badge.delay(self.id)
 
             # Recursively set all quests in all course groups to 'Expired'
             for course_group in self.groups.all():
@@ -627,6 +646,7 @@ class Cosmetic(models.Model):
     type = models.CharField(max_length=50, choices=TypeOfCosmetic.choices)
     image = models.ForeignKey(Image, on_delete=models.SET_NULL, null=True, blank=True)
     cost = models.FloatField(default=0)
+    purchaseable = models.BooleanField(default=True)
 
     def get_type(self) -> TypeOfCosmetic:
         return self.TypeOfCosmetic(self.type)
@@ -666,6 +686,10 @@ class UserCosmetics(models.Model):
     def save(self, *args, **kwargs):
         self.full_clean()
         super(UserCosmetics, self).save(*args, **kwargs)
+
+        if self.owns.count() == 10:
+            from .tasks import award_hoarder_badge
+            award_hoarder_badge.delay(self.user.id)
 
     def __str__(self):
         return f"Cosmetics for {self.user.username}"

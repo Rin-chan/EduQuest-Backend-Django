@@ -5,6 +5,7 @@ from django.utils import timezone
 from django.db.models import Max, Q
 import requests
 from django.conf import settings
+from collections import defaultdict
 
 from api.models import EduquestUser, StudentCognitiveProfile, StudentFeedback, UserQuestAttempt
 
@@ -400,7 +401,168 @@ def award_tutorial_attendance_badges_for_course(course_id):
 #     except Exception as e:
 #         return f"[Completionist] Error: {e}"
 
+@shared_task
+def award_top_ranker_badge(course_id):
+    """
+    Award the "Top Ranker" badge to the user who ranked first for the course.
+    Triggered when a course expires.
+    """
+    from .models import CourseGroup, Quest, UserCourseGroupEnrollment, UserCourseBadge, Badge, UserQuestAttempt, TestScore, UserTestScore
+    try:
+        course_groups = CourseGroup.objects.filter(course_id=course_id)
+        if not course_groups.exists():
+            return f"[Top Ranker] No course groups found for course: {course_id}"
 
+        top_ranker_badge = Badge.objects.get(name="Top Ranker")
+
+        for course_group in course_groups:
+            student_scores = defaultdict(float)
+
+            enrollments = UserCourseGroupEnrollment.objects.filter(course_group=course_group).select_related("student")
+
+            quests = Quest.objects.filter(course_group=course_group)
+
+            quest_attempts = UserQuestAttempt.objects.filter(
+                quest__in=quests,
+                student__in=[e.student for e in enrollments]
+            )
+
+            for attempt in quest_attempts:
+                student_scores[attempt.student_id] += (
+                    attempt.total_score_achieved or 0
+                )
+            
+            tests = TestScore.objects.filter(course_group=course_group)
+
+            test_scores = UserTestScore.objects.filter(
+                test__in=tests,
+                student__in=[e.student for e in enrollments]
+            ).select_related("test")
+
+            for test_score in test_scores:
+                weightage = test_score.test.weightage or 0
+
+                weighted_score = (
+                    (test_score.score or 0)
+                    * (weightage / 100)
+                )
+
+                student_scores[test_score.student_id] += weighted_score
+
+            if not student_scores:
+                return f"[Top Ranker] No attempts with the highest score for course: {course_id}"
+            
+            highest_score = max(student_scores.values())
+            top_student_ids = [
+                student_id
+                for student_id, score in student_scores.items()
+                if score == highest_score
+            ]
+
+            top_rankering_students = enrollments.filter(
+                student_id__in=top_student_ids
+            )
+
+            for top_student in top_rankering_students:
+                user_course_badge, created = UserCourseBadge.objects.get_or_create(
+                    badge=top_ranker_badge,
+                    user_course_group_enrollment=top_student
+                )
+                if created:
+                    award_badge_points(top_student.student, "Top Ranker")
+
+        return f"[Top Ranker] Awarded top ranker badges for course: {course_id}"
+    except Badge.DoesNotExist:
+        return "[Top Ranker] Required badges do not exist."
+    except Exception as e:
+        logger.exception("[Top Ranker] Unexpected error: %s", str(e))
+        return f"[Top Ranker] Error: {str(e)}"
+
+@shared_task
+def award_consecutive_30days_badge(user_id):
+    """
+    Award the "Consecutive 30 Days" badge to the user has a login streak of 30 days.
+    Triggered when a user login
+    """
+    from .models import EduquestUser, UserOtherBadge, Badge
+    try:
+        print(user_id)
+        user = EduquestUser.objects.get(id=user_id)
+
+        if user.daily_checkin_streak < 30:
+            return f"[Consecutive 30 days] Skipping user: {user.username}"
+
+        badge = Badge.objects.get(name="Consecutive 30 Days")
+        logger.info(f"[Consecutive 30 days] {user.username} has logged in for 30 days")
+
+        user_other_badge, created = UserOtherBadge.objects.get_or_create(
+            badge=badge,
+            user_id=user
+        )
+        if created:
+            award_badge_points(user, "Consecutive 30 days")
+
+        return f"[Consecutive 30 days] Badge awarded to user: {user.username}"
+
+    except Badge.DoesNotExist:
+        return f"[Consecutive 30 days] Badge 'Consecutive 30 days' does not exist."
+
+@shared_task
+def award_semester_badge(user_id):
+    """
+    Award the "Semester" badge to the user who has a login streak of 84 days.
+    Triggered when a user login
+    """
+    from .models import EduquestUser, UserOtherBadge, Badge
+    try:
+        user = EduquestUser.objects.get(id=user_id)
+
+        if user.daily_checkin_streak < 84:
+            return f"[Semester] Skipping user cosmetic: {user.username}"
+
+        badge = Badge.objects.get(name="Semester")
+        logger.info(f"[Semester] {user.username} has logged in for 84 days")
+
+        user_other_badge, created = UserOtherBadge.objects.get_or_create(
+            badge=badge,
+            user_id=user
+        )
+        if created:
+            award_badge_points(user, "Semester")
+
+        return f"[Semester] Badge awarded to user: {user.username}"
+
+    except Badge.DoesNotExist:
+        return f"[Semester] Badge 'Semester' does not exist."
+    
+@shared_task
+def award_hoarder_badge(user_id):
+    """
+    Award the "Hoarder" badge to the user who bought at least 10 cosmetic items.
+    Triggered after a user buys a cosmetic item from the store.
+    """
+    from .models import UserCosmetics, UserOtherBadge, Badge
+    try:
+        userCosmetics = UserCosmetics.objects.get(user_id=user_id)
+
+        if userCosmetics.owns == None or userCosmetics.owns.count() < 10:
+            return f"[Hoarder] Skipping user cosmetic: {userCosmetics.user.username}"
+
+        badge = Badge.objects.get(name="Hoarder")
+        logger.info(f"[Hoarder] {userCosmetics.user.username} bought at least 10 cosmetic")
+
+        user_other_badge, created = UserOtherBadge.objects.get_or_create(
+            badge=badge,
+            user_id=userCosmetics.user
+        )
+        if created:
+            award_badge_points(userCosmetics.user, "Hoarder")
+
+        return f"[Hoarder] Badge awarded to user: {userCosmetics.user.username}"
+
+    except Badge.DoesNotExist:
+        return f"[Hoarder] Badge 'Hoarder' does not exist."
+    
 @shared_task
 def check_course_completion_and_award_completionist_badge(course_id):
     """
@@ -668,3 +830,26 @@ def update_cognitive_profile(student_id):
 
     except Exception as e:
         print(f"[Error Updating Cognitive Profile]: {str(e)}")
+
+@shared_task
+def award_level_border(user_id):
+    """
+    Award the borders based on the user's level.
+    Triggered after a user earns points.
+    """
+    from .models import UserCosmetics, Cosmetic
+    try:
+        userCosmetics = UserCosmetics.objects.get(user_id=user_id)
+
+        userLevel = math.floor(userCosmetics.user.total_points / 100)
+        if userLevel <= 0:
+            return
+        
+        frame = Cosmetic.objects.get(name=f"Level {userLevel} Frame")
+        userCosmetics.owns.add(frame)
+        logger.info(f"[Level Border] {userCosmetics.user.username} is at {userLevel} level")
+
+        return f"[Level Border] Cosmetic frame awarded to user: {userCosmetics.user.username}"
+
+    except Cosmetic.DoesNotExist:
+        return f"[Level Border] Cosmetic frame does not exist."
