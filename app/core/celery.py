@@ -25,7 +25,7 @@ app.conf.broker_connection_retry_on_startup = True
 app.conf.beat_schedule = {
     'check-expired-dates-every-second': {
         'task': 'api.tasks.check_expired_quest',
-        'schedule': timedelta(seconds=10),
+        'schedule': timedelta(seconds=30),
     },
 }
 
