@@ -99,18 +99,19 @@ class EduquestUser(AbstractUser):
             UserCourseGroupEnrollment.objects.get_or_create(student=self, course_group=private_course_group)
             UserCosmetics.objects.get_or_create(user=self)
             print(f"[Enroll Private Course Group] User: {self.username} has been enrolled in the Private course group")
-    
-        if old_instance.daily_checkin_streak == 29 and self.daily_checkin_streak == 30 and self.daily_checkin_longest_streak == 30:
-            from .tasks import award_consecutive_30days_badge
-            award_consecutive_30days_badge.delay(self.id)
-        
-        if old_instance.daily_checkin_streak == 83 and self.daily_checkin_streak == 84 and self.daily_checkin_longest_streak == 84:
-            from .tasks import award_semester_badge
-            award_semester_badge.delay(self.id)
 
-        if self.total_points > 100 and math.floor(old_instance.total_points) != math.floor(self.total_points):
-            from .tasks import award_level_border
-            award_level_border.delay(self.id)
+        if not is_new:    
+            if old_instance.daily_checkin_streak == 29 and self.daily_checkin_streak == 30 and self.daily_checkin_longest_streak == 30:
+                from .tasks import award_consecutive_30days_badge
+                award_consecutive_30days_badge.delay(self.id)
+            
+            if old_instance.daily_checkin_streak == 83 and self.daily_checkin_streak == 84 and self.daily_checkin_longest_streak == 84:
+                from .tasks import award_semester_badge
+                award_semester_badge.delay(self.id)
+
+            if self.total_points > 100 and math.floor(old_instance.total_points) != math.floor(self.total_points):
+                from .tasks import award_level_border
+                award_level_border.delay(self.id)
 
 
 
